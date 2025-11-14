@@ -1,0 +1,131 @@
+.login-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  border: none;
+  cursor: pointer;
+}
+
+.login-button.sign-in {
+  background: #4285f4;
+  color: white;
+}
+
+.login-button.sign-in:hover:not(:disabled) {
+  background: #357ae8;
+  transform: translateY(-1px);
+}
+
+.login-button.sign-in:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-button.sign-in.error {
+  background: #dc3545;
+  color: white;
+}
+
+.login-button.sign-in.error:hover {
+  background: #c82333;
+}
+
+.login-button.loading {
+  background: transparent;
+  color: inherit;
+  cursor: default;
+}
+
+.login-button.user-info {
+  background: transparent;
+  padding: 4px 8px;
+  gap: 8px;
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-avatar span {
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.user-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: inherit;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-role {
+  font-size: 11px;
+  color: #10a37f;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.logout-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  border-radius: 4px;
+}
+
+.logout-button:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='dark'] .logout-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 768px) {
+  .user-details {
+    display: none;
+  }
+  
+  .login-button.user-info {
+    padding: 4px;
+  }
+}
+

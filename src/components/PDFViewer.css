@@ -1,0 +1,298 @@
+.pdf-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: #f5f5f5;
+  transition: background-color 0.3s;
+}
+
+[data-theme='dark'] .pdf-viewer {
+  background-color: #1a1a1a;
+}
+
+.pdf-viewer-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background-color: #f5f5f5;
+  transition: background-color 0.3s;
+  position: relative;
+}
+
+[data-theme='dark'] .pdf-viewer-empty {
+  background-color: #1a1a1a;
+}
+
+.upload-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  /* Smooth transition for position changes when switching layouts */
+  transition: top 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out;
+  z-index: 1001; /* Above floating chat (z-index: 1000) */
+}
+
+/* In float mode, position upload button in the upper area between navbar and model selector bar area */
+/* Navbar is 60px, chat area is at bottom ~90px + model selector bar height */
+/* Position it higher up, closer to the top */
+.pdf-viewer-empty.float-layout .upload-container {
+  /* Position it higher: navbar (60px) + smaller offset from top (about 1/3 of remaining space) */
+  top: calc(60px + (100vh - 60px - 250px) / 3);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* In split mode, center button in the PDF viewer area (left side) */
+/* PDF viewer takes remaining space after chat (400px), so center is at (100vw - 400px) / 2 */
+.pdf-viewer-empty:not(.float-layout) .upload-container {
+  /* Center vertically and horizontally in the PDF viewer area */
+  top: 50%;
+  left: calc((100vw - 400px) / 2); /* Center of PDF viewer area (chat is 400px wide) */
+  transform: translate(-50%, -50%);
+}
+
+.upload-button {
+  padding: 12px 24px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.upload-button:hover {
+  background-color: #0056b3;
+}
+
+.pdf-controls-top {
+  padding: 12px 16px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+
+[data-theme='dark'] .pdf-controls-top {
+  background-color: #1a1a1a;
+  border-bottom-color: #333;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fit-button {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.control-button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #d0d0d0;
+  background-color: #ffffff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, border-color 0.3s, color 0.3s;
+  color: #333;
+}
+
+.control-button:hover {
+  background-color: #f0f0f0;
+}
+
+[data-theme='dark'] .control-button {
+  border-color: #444;
+  background-color: #2a2a2a;
+  color: #ececf1;
+}
+
+[data-theme='dark'] .control-button:hover {
+  background-color: #3a3a3a;
+  border-color: #555;
+}
+
+.control-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.zoom-level {
+  min-width: 50px;
+  text-align: center;
+  font-size: 14px;
+  color: #666;
+  transition: color 0.3s;
+}
+
+[data-theme='dark'] .zoom-level {
+  color: #8e8ea0;
+}
+
+.pdf-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background-color: #525252;
+  gap: 20px;
+}
+
+.pdf-content canvas {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background-color: white;
+  display: block;
+  margin: 0 auto;
+}
+
+/* Page wrapper for scroll detection */
+.pdf-page-wrapper {
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.pdf-page-wrapper:last-child {
+  margin-bottom: 0;
+}
+
+/* Ensure each page is properly spaced */
+.pdf-content .react-pdf__Page {
+  margin: 0;
+}
+
+/* Text selection highlighting */
+.pdf-content ::selection {
+  background-color: rgba(0, 123, 255, 0.3);
+  color: inherit;
+}
+
+.pdf-content ::-moz-selection {
+  background-color: rgba(0, 123, 255, 0.3);
+  color: inherit;
+}
+
+/* Ensure text layer is selectable */
+.pdf-content .react-pdf__Page__textContent {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
+
+.loading,
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #666;
+  font-size: 16px;
+}
+
+.error {
+  color: #d32f2f;
+}
+
+.pdf-controls-bottom {
+  padding: 12px 16px;
+  background-color: #ffffff;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+
+[data-theme='dark'] .pdf-controls-bottom {
+  background-color: #1a1a1a;
+  border-top-color: #333;
+}
+
+.nav-button {
+  padding: 8px 16px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.nav-button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.nav-button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+[data-theme='dark'] .nav-button:disabled {
+  background-color: #444;
+  color: #666;
+}
+
+.page-info {
+  font-size: 14px;
+  color: #666;
+  min-width: 100px;
+  text-align: center;
+  transition: color 0.3s;
+}
+
+[data-theme='dark'] .page-info {
+  color: #8e8ea0;
+}
+
+/* Scrollbar styling for PDF content */
+.pdf-content::-webkit-scrollbar {
+  width: 12px;
+}
+
+.pdf-content::-webkit-scrollbar-track {
+  background: #3a3a3a;
+}
+
+[data-theme='dark'] .pdf-content::-webkit-scrollbar-track {
+  background: #0f0f0f;
+}
+
+.pdf-content::-webkit-scrollbar-thumb {
+  background: #666;
+  border-radius: 6px;
+}
+
+.pdf-content::-webkit-scrollbar-thumb:hover {
+  background: #777;
+}
+
+[data-theme='dark'] .pdf-content::-webkit-scrollbar-thumb {
+  background: #444;
+}
+
+[data-theme='dark'] .pdf-content::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+

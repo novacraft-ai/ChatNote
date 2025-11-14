@@ -1,0 +1,163 @@
+.navbar {
+  height: 60px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  flex-shrink: 0;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+
+[data-theme='dark'] .navbar {
+  background-color: #1a1a1a;
+  border-bottom-color: #333;
+}
+
+.navbar-content {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.navbar-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+  transition: color 0.3s;
+}
+
+[data-theme='dark'] .navbar-title {
+  color: #ececf1;
+}
+
+.navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-toggle,
+.settings-toggle {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #333;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.theme-toggle:hover,
+.settings-toggle:hover {
+  background-color: #f5f5f5;
+  border-color: #d0d0d0;
+  transform: scale(1.05);
+}
+
+[data-theme='dark'] .theme-toggle,
+[data-theme='dark'] .settings-toggle {
+  border-color: #444;
+  color: #ececf1;
+}
+
+[data-theme='dark'] .theme-toggle:hover,
+[data-theme='dark'] .settings-toggle:hover {
+  background-color: #2a2a2a;
+  border-color: #555;
+}
+
+/* Settings Modal */
+.settings-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.settings-modal {
+  background: white;
+  border-radius: 12px;
+  max-width: 700px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: modalSlideIn 0.2s ease-out;
+}
+
+[data-theme='dark'] .settings-modal {
+  background: #1a1a1a;
+  color: #ececf1;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+[data-theme='dark'] .settings-modal-header {
+  border-bottom-color: #333;
+}
+
+.settings-modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.settings-modal-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: inherit;
+  transition: background 0.2s;
+  padding: 0;
+}
+
+.settings-modal-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='dark'] .settings-modal-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.settings-modal-content {
+  padding: 24px;
+}
+
