@@ -22,6 +22,65 @@ export default function LoginButton() {
   const [googleLoaded, setGoogleLoaded] = useState(false)
   const [scriptError, setScriptError] = useState<string | null>(null)
 
+  // Suppress expected Google OAuth console errors globally
+  useEffect(() => {
+    const originalError = console.error
+    const originalWarn = console.warn
+    
+    console.error = (...args: any[]) => {
+      const message = args.join(' ')
+      // Suppress expected Google OAuth/FedCM errors
+      if (
+        message.includes('Not signed in with the identity provider') ||
+        message.includes('AbortError') ||
+        message.includes('signal is aborted') ||
+        message.includes('FedCM get() rejects') ||
+        message.includes('GSI_LOGGER') ||
+        message.includes('Only one navigator.credentials.get request may be outstanding')
+      ) {
+        return // Suppress these expected errors
+      }
+      originalError.apply(console, args)
+    }
+    
+    console.warn = (...args: any[]) => {
+      const message = args.join(' ')
+      if (
+        message.includes('GSI_LOGGER') ||
+        message.includes('Not signed in with the identity provider') ||
+        message.includes('Only one navigator.credentials.get request may be outstanding')
+      ) {
+        return // Suppress these expected warnings
+      }
+      originalWarn.apply(console, args)
+    }
+    
+    // Also suppress window.onerror for these messages
+    const originalOnError = window.onerror
+    window.onerror = (message, source, lineno, colno, error) => {
+      if (
+        typeof message === 'string' && (
+          message.includes('Not signed in with the identity provider') ||
+          message.includes('Only one navigator.credentials.get request may be outstanding') ||
+          message.includes('AbortError') ||
+          source?.includes('accounts.google.com')
+        )
+      ) {
+        return true // Suppress
+      }
+      if (originalOnError) {
+        return originalOnError(message, source, lineno, colno, error)
+      }
+      return false
+    }
+    
+    return () => {
+      console.error = originalError
+      console.warn = originalWarn
+      window.onerror = originalOnError
+    }
+  }, [])
+
   // Define callback before useEffect to avoid stale closure
   const handleCredentialResponse = useCallback(async (response: { credential: string }) => {
     try {
@@ -54,6 +113,25 @@ export default function LoginButton() {
           callback: handleCredentialResponse
         })
         setGoogleLoaded(true)
+        // Pre-initialize the prompt system so first click works immediately
+        // Call prompt() once silently to "warm up" the system
+        // The callback handles the notification but doesn't show any UI
+        setTimeout(() => {
+          try {
+            if (window.google?.accounts?.id) {
+              window.google.accounts.id.prompt((notification: any) => {
+                // Silent pre-initialization - handle notification but don't show anything
+                // This "warms up" the prompt system so user's first click works immediately
+                if (notification) {
+                  // Just acknowledge the notification, don't create any UI
+                  // The system is now ready for the user's click
+                }
+              })
+            }
+          } catch (e) {
+            // Ignore errors during pre-initialization
+          }
+        }, 300)
       } catch (error) {
         console.error('Failed to initialize Google OAuth:', error)
         setScriptError('Failed to initialize Google OAuth')
@@ -76,7 +154,26 @@ export default function LoginButton() {
             // Opt-in to FedCM to reduce warnings
             use_fedcm_for_prompt: true
           })
-          setGoogleLoaded(true)
+        setGoogleLoaded(true)
+        // Pre-initialize the prompt system so first click works immediately
+        // Call prompt() once silently to "warm up" the system
+        // The callback handles the notification but doesn't show any UI
+        setTimeout(() => {
+          try {
+            if (window.google?.accounts?.id) {
+              window.google.accounts.id.prompt((notification: any) => {
+                // Silent pre-initialization - handle notification but don't show anything
+                // This "warms up" the prompt system so user's first click works immediately
+                if (notification) {
+                  // Just acknowledge the notification, don't create any UI
+                  // The system is now ready for the user's click
+                }
+              })
+            }
+          } catch (e) {
+            // Ignore errors during pre-initialization
+          }
+        }, 300)
         } catch (error) {
           console.error('Failed to initialize Google OAuth:', error)
           setScriptError('Failed to initialize Google OAuth')
@@ -110,13 +207,13 @@ export default function LoginButton() {
     }
   }, [handleCredentialResponse])
 
-  // Remove fallback button when user logs in
+  // Remove fallback button and backdrop when user logs in
   useEffect(() => {
     if (user) {
+      const backdrop = document.getElementById('google-login-backdrop')
       const button = document.getElementById('google-signin-button')
-      if (button) {
-        button.remove()
-      }
+      if (backdrop) backdrop.remove()
+      if (button) button.remove()
     }
   }, [user])
 
@@ -211,24 +308,67 @@ export default function LoginButton() {
           // If prompt is not displayed, skipped, or dismissed, show fallback button
           if (notDisplayedReason || skippedReason || dismissedReason || 
               isNotDisplayed || isSkipped || isDismissed) {
-            // Fallback: create a popup button
+            // Remove any existing login popup
+            const existingBackdrop = document.getElementById('google-login-backdrop')
             const existingButton = document.getElementById('google-signin-button')
-            if (existingButton) {
-              existingButton.remove()
+            if (existingBackdrop) existingBackdrop.remove()
+            if (existingButton) existingButton.remove()
+            
+            // Create backdrop (clickable overlay to close)
+            const backdrop = document.createElement('div')
+            backdrop.id = 'google-login-backdrop'
+            backdrop.style.position = 'fixed'
+            backdrop.style.top = '0'
+            backdrop.style.left = '0'
+            backdrop.style.width = '100%'
+            backdrop.style.height = '100%'
+            backdrop.style.backgroundColor = 'rgba(0, 0, 0, 0.5)'
+            backdrop.style.zIndex = '9999'
+            backdrop.style.display = 'flex'
+            backdrop.style.alignItems = 'center'
+            backdrop.style.justifyContent = 'center'
+            
+            // Close function
+            const closeLogin = () => {
+              backdrop.remove()
+              button.remove()
+              // Remove escape key listener
+              document.removeEventListener('keydown', escapeHandler)
             }
             
+            // Click backdrop to close
+            backdrop.addEventListener('click', (e) => {
+              // Only close if clicking the backdrop itself, not the button
+              if (e.target === backdrop) {
+                closeLogin()
+              }
+            })
+            
+            // Escape key to close
+            const escapeHandler = (e: KeyboardEvent) => {
+              if (e.key === 'Escape') {
+                closeLogin()
+              }
+            }
+            document.addEventListener('keydown', escapeHandler)
+            
+            // Create button container
             const button = document.createElement('div')
             button.id = 'google-signin-button'
-            button.style.position = 'fixed'
-            button.style.top = '50%'
-            button.style.left = '50%'
-            button.style.transform = 'translate(-50%, -50%)'
-            button.style.zIndex = '10000'
+            button.style.position = 'relative'
             button.style.background = 'white'
             button.style.padding = '20px'
             button.style.borderRadius = '8px'
             button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)'
-            document.body.appendChild(button)
+            button.style.zIndex = '10000'
+            
+            // Prevent clicks on button from closing the popup
+            button.addEventListener('click', (e) => {
+              e.stopPropagation()
+            })
+            
+            backdrop.appendChild(button)
+            document.body.appendChild(backdrop)
             
             try {
               window.google!.accounts.id.renderButton(button, {
@@ -246,11 +386,18 @@ export default function LoginButton() {
                         style="padding: 10px 20px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%;">
                   Continue with Google
                 </button>
-                <button onclick="document.getElementById('google-signin-button').remove()" 
+                <button onclick="document.getElementById('google-login-backdrop')?.remove(); document.getElementById('google-signin-button')?.remove();" 
                         style="margin-top: 10px; padding: 5px 10px; background: #f0f0f0; border: none; border-radius: 4px; cursor: pointer; width: 100%;">
                   Cancel
                 </button>
               `
+              // Also remove escape handler when cancel is clicked
+              const cancelBtn = button.querySelector('button:last-child')
+              if (cancelBtn) {
+                cancelBtn.addEventListener('click', () => {
+                  document.removeEventListener('keydown', escapeHandler)
+                })
+              }
             }
           }
         })
@@ -283,7 +430,29 @@ export default function LoginButton() {
       <div className="login-button user-info">
         <div className="user-avatar">
           {user.picture ? (
-            <img src={user.picture} alt={user.name || user.email} />
+            <img 
+              src={user.picture} 
+              alt={user.name || user.email}
+              crossOrigin="anonymous"
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                // If image fails to load, show fallback
+                const target = e.target as HTMLImageElement
+                target.style.display = 'none'
+                const parent = target.parentElement
+                if (parent) {
+                  // Remove any existing span
+                  const existingSpan = parent.querySelector('span')
+                  if (existingSpan) {
+                    existingSpan.remove()
+                  }
+                  // Add fallback
+                  const fallback = document.createElement('span')
+                  fallback.textContent = user.name?.[0] || user.email[0].toUpperCase()
+                  parent.appendChild(fallback)
+                }
+              }}
+            />
           ) : (
             <span>{user.name?.[0] || user.email[0].toUpperCase()}</span>
           )}
@@ -322,10 +491,10 @@ export default function LoginButton() {
   }
 
   return (
-    <button 
+      <button 
       onClick={handleLogin} 
       className="login-button sign-in" 
-      disabled={!googleLoaded && !scriptError}
+      disabled={!googleLoaded}
       title={!googleLoaded ? 'Loading Google Sign-In...' : 'Sign in with Google'}
     >
       {googleLoaded ? (
