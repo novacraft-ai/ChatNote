@@ -15,6 +15,9 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
   const [numPages, setNumPages] = useState<number>(0)
   const [pageNumber, setPageNumber] = useState<number>(1)
   const [scale, setScale] = useState<number>(1.0)
+  const [isEditingZoom, setIsEditingZoom] = useState<boolean>(false)
+  const [zoomInputValue, setZoomInputValue] = useState<string>('100')
+  const zoomInputRef = useRef<HTMLInputElement>(null)
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const pdfContentRef = useRef<HTMLDivElement>(null)
   const pdfViewerRef = useRef<HTMLDivElement>(null)
@@ -251,12 +254,143 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
   }
 
   const handleZoomIn = () => {
-    setScale((prev) => Math.min(prev + 0.2, 3.0))
+    const newScale = Math.min(scale + 0.2, 5.0)
+    setScale(newScale)
+    setZoomInputValue(Math.round(newScale * 100).toString())
   }
 
   const handleZoomOut = () => {
-    setScale((prev) => Math.max(prev - 0.2, 0.5))
+    const newScale = Math.max(scale - 0.2, 0.25)
+    setScale(newScale)
+    setZoomInputValue(Math.round(newScale * 100).toString())
   }
+
+  // Update zoom input value when scale changes (from other sources like fit width/height)
+  useEffect(() => {
+    if (!isEditingZoom) {
+      setZoomInputValue(Math.round(scale * 100).toString())
+    }
+  }, [scale, isEditingZoom])
+
+  const handleZoomInputClick = () => {
+    setIsEditingZoom(true)
+    setZoomInputValue(Math.round(scale * 100).toString())
+  }
+
+  const handleZoomInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value
+    
+    // Remove all non-digit characters (no decimals, no negatives, no letters, no symbols)
+    value = value.replace(/[^0-9]/g, '')
+    
+    // Prevent empty string (allow user to clear, but we'll validate on blur/enter)
+    // Remove leading zeros (e.g., "007" -> "7", but keep "0" if it's just "0")
+    if (value.length > 1 && value.startsWith('0')) {
+      value = value.replace(/^0+/, '') || '0'
+    }
+    
+    // Limit to reasonable maximum (prevent extremely large numbers)
+    if (value.length > 3) {
+      value = value.slice(0, 3)
+    }
+    
+    setZoomInputValue(value)
+  }
+
+  const handleZoomInputBlur = () => {
+    applyZoomInput()
+  }
+
+  const handleZoomInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      applyZoomInput()
+    } else if (e.key === 'Escape') {
+      setIsEditingZoom(false)
+      setZoomInputValue(Math.round(scale * 100).toString())
+      zoomInputRef.current?.blur()
+    } else if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Tab') {
+      // Allow navigation and deletion keys
+      return
+    } else if (e.key === '-' || e.key === '+' || e.key === '.' || e.key === ',' || e.key === 'e' || e.key === 'E') {
+      // Prevent negative, decimal, scientific notation
+      e.preventDefault()
+    } else if (!/[0-9]/.test(e.key) && !e.ctrlKey && !e.metaKey) {
+      // Prevent non-digit characters (except Ctrl/Cmd combinations for copy/paste)
+      e.preventDefault()
+    }
+  }
+
+  const handleZoomInputPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault()
+    // Get pasted text
+    const pastedText = e.clipboardData.getData('text')
+    
+    // Extract only digits from pasted text
+    const digitsOnly = pastedText.replace(/[^0-9]/g, '')
+    
+    if (digitsOnly) {
+      // Remove leading zeros
+      const cleanedValue = digitsOnly.replace(/^0+/, '') || '0'
+      
+      // Limit to 3 digits
+      const limitedValue = cleanedValue.slice(0, 3)
+      
+      setZoomInputValue(limitedValue)
+      
+      // Auto-apply if the value is valid
+      if (limitedValue && limitedValue !== '0') {
+        const numericValue = parseInt(limitedValue, 10)
+        if (!isNaN(numericValue) && numericValue > 0) {
+          const clampedValue = Math.max(25, Math.min(500, numericValue))
+          const newScale = clampedValue / 100
+          setScale(newScale)
+          setZoomInputValue(clampedValue.toString())
+          setIsEditingZoom(false)
+        }
+      }
+    }
+  }
+
+  const applyZoomInput = () => {
+    // Handle empty input
+    if (zoomInputValue.trim() === '' || zoomInputValue === '0') {
+      // Reset to current scale if empty or zero
+      setZoomInputValue(Math.round(scale * 100).toString())
+      setIsEditingZoom(false)
+      return
+    }
+    
+    // Parse as integer (no decimals allowed)
+    const numericValue = parseInt(zoomInputValue, 10)
+    
+    // Validate: must be a valid positive integer
+    if (isNaN(numericValue) || numericValue <= 0) {
+      // Invalid input - reset to current scale
+      setZoomInputValue(Math.round(scale * 100).toString())
+      setIsEditingZoom(false)
+      return
+    }
+    
+    // Clamp to valid range (25-500)
+    const clampedValue = Math.max(25, Math.min(500, numericValue))
+    
+    // Convert percentage to scale (e.g., 100% = 1.0, 200% = 2.0)
+    const newScale = clampedValue / 100
+    setScale(newScale)
+    
+    // Update input value to show clamped result (in case user entered out-of-range value)
+    setZoomInputValue(clampedValue.toString())
+    setIsEditingZoom(false)
+  }
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (isEditingZoom && zoomInputRef.current) {
+      zoomInputRef.current.focus()
+      zoomInputRef.current.select()
+    }
+  }, [isEditingZoom])
 
   const handleFitWidth = () => {
     if (!pdfViewerRef.current || pageDimensionsRef.current.size === 0) return
@@ -278,7 +412,9 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
 
     // Calculate scale to fit width
     const newScale = availableWidth / firstPageDims.width
-    setScale(Math.max(0.1, Math.min(newScale, 3.0))) // Clamp between 0.1 and 3.0
+    const clampedScale = Math.max(0.1, Math.min(newScale, 5.0)) // Clamp between 0.1 and 5.0
+    setScale(clampedScale)
+    setZoomInputValue(Math.round(clampedScale * 100).toString())
   }
 
   const handleFitHeight = () => {
@@ -293,7 +429,9 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
 
     // Calculate scale to fit height
     const newScale = availableHeight / currentPageDims.height
-    setScale(Math.max(0.1, Math.min(newScale, 3.0))) // Clamp between 0.1 and 3.0
+    const clampedScale = Math.max(0.1, Math.min(newScale, 5.0))
+    setScale(clampedScale)
+    setZoomInputValue(Math.round(clampedScale * 100).toString())
   }
 
   const handleTextSelection = useCallback(() => {
@@ -342,15 +480,36 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
       <div className="pdf-controls-top">
         <div className="zoom-controls">
           <button onClick={handleFitWidth} className="control-button fit-button" title="Fit to width">
-            ⤢
+            ↔
           </button>
           <button onClick={handleFitHeight} className="control-button fit-button" title="Fit to height">
-            ⤡
+            ↕
           </button>
           <button onClick={handleZoomOut} className="control-button">
             −
           </button>
-          <span className="zoom-level">{Math.round(scale * 100)}%</span>
+          {isEditingZoom ? (
+            <input
+              ref={zoomInputRef}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={zoomInputValue}
+              onChange={handleZoomInputChange}
+              onBlur={handleZoomInputBlur}
+              onKeyDown={handleZoomInputKeyDown}
+              onPaste={handleZoomInputPaste}
+              className="zoom-input"
+            />
+          ) : (
+            <span 
+              className="zoom-level" 
+              onClick={handleZoomInputClick}
+              title="Click to edit zoom level"
+            >
+              {Math.round(scale * 100)}%
+            </span>
+          )}
           <button onClick={handleZoomIn} className="control-button">
             +
           </button>

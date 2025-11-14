@@ -81,11 +81,16 @@
 .user-name {
   font-size: 13px;
   font-weight: 500;
-  color: inherit;
+  color: #333;
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 0.3s;
+}
+
+[data-theme='dark'] .user-name {
+  color: #ececf1;
 }
 
 .user-role {
@@ -104,10 +109,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: inherit;
+  color: #333;
   opacity: 0.7;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, color 0.3s, background 0.2s;
   border-radius: 4px;
+}
+
+[data-theme='dark'] .logout-button {
+  color: #ececf1;
 }
 
 .logout-button:hover {

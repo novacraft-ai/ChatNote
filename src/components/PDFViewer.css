@@ -137,23 +137,63 @@
   text-align: center;
   font-size: 14px;
   color: #666;
-  transition: color 0.3s;
+  transition: color 0.3s, background-color 0.2s;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.zoom-level:hover {
+  background-color: #f0f0f0;
 }
 
 [data-theme='dark'] .zoom-level {
   color: #8e8ea0;
 }
 
+[data-theme='dark'] .zoom-level:hover {
+  background-color: #2a2a2a;
+}
+
+.zoom-input {
+  min-width: 50px;
+  text-align: center;
+  font-size: 14px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  padding: 4px;
+  background-color: #ffffff;
+  color: #333;
+  transition: border-color 0.2s;
+}
+
+.zoom-input:focus {
+  outline: none;
+  border-color: #4285f4;
+  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+}
+
+[data-theme='dark'] .zoom-input {
+  background-color: #2a2a2a;
+  border-color: #444;
+  color: #ececf1;
+}
+
+[data-theme='dark'] .zoom-input:focus {
+  border-color: #4285f4;
+  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.3);
+}
+
 .pdf-content {
   flex: 1;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 20px;
   background-color: #525252;
   gap: 20px;
+  min-width: 0;
 }
 
 .pdf-content canvas {
@@ -168,6 +208,8 @@
   margin-bottom: 20px;
   display: flex;
   justify-content: center;
+  flex-shrink: 0;
+  min-width: fit-content;
 }
 
 .pdf-page-wrapper:last-child {
@@ -269,6 +311,7 @@
 /* Scrollbar styling for PDF content */
 .pdf-content::-webkit-scrollbar {
   width: 12px;
+  height: 12px;
 }
 
 .pdf-content::-webkit-scrollbar-track {

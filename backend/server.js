@@ -12,26 +12,45 @@ const app = express()
 const PORT = process.env.PORT || 3000
 
 // Middleware
-// Allow both localhost and 127.0.0.1 for local development
-const allowedOrigins = process.env.FRONTEND_URL 
-  ? [process.env.FRONTEND_URL]
-  : ['http://localhost:5173', 'http://127.0.0.1:5173']
-
+// CORS configuration - use FRONTEND_URL from environment
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true)
     
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true)
-    } else {
-      // For development, also allow localhost and 127.0.0.1 variations
-      if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
-        callback(null, true)
-      } else {
-        callback(new Error('Not allowed by CORS'))
+    // Get base URL from FRONTEND_URL (remove trailing slash and path if present)
+    const frontendUrl = process.env.FRONTEND_URL
+    if (frontendUrl) {
+      // Normalize the URL (remove trailing slash)
+      const normalizedUrl = frontendUrl.replace(/\/$/, '')
+      // Extract base domain
+      const urlObj = new URL(normalizedUrl)
+      const baseUrl = `${urlObj.protocol}//${urlObj.host}`
+      
+      // Allow exact match
+      if (origin === normalizedUrl) {
+        return callback(null, true)
+      }
+      
+      // Allow base domain (without path)
+      if (origin === baseUrl) {
+        return callback(null, true)
+      }
+      
+      // Allow any subpath under the base domain
+      if (origin.startsWith(baseUrl + '/')) {
+        return callback(null, true)
       }
     }
+    
+    // For development, allow localhost and 127.0.0.1 variations
+    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+      return callback(null, true)
+    }
+    
+    // Reject all other origins
+    console.warn('CORS blocked origin:', origin, '(Expected:', process.env.FRONTEND_URL || 'localhost', ')')
+    callback(new Error('Not allowed by CORS'))
   },
   credentials: true
 }))

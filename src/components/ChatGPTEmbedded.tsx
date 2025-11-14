@@ -52,7 +52,7 @@ interface ChatGPTEmbeddedProps {
 
 function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbeddedProps) {
   const { theme } = useTheme()
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated, user, loading: authLoading } = useAuth()
   const [messages, setMessages] = useState<Array<ChatMessage & { id: string }>>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -302,7 +302,7 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
 
   return (
     <div className="chatgpt-wrapper">
-      {!isAuthenticated && layout === 'floating' && (
+      {!authLoading && !isAuthenticated && layout === 'floating' && (
         <div className="api-key-warning-outer">
           <span>🔐 Please sign in to use the chat feature</span>
           <span className="warning-hint">
@@ -310,7 +310,7 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
           </span>
         </div>
       )}
-      {isAuthenticated && apiKeyMissing && layout === 'floating' && (
+      {!authLoading && isAuthenticated && apiKeyMissing && layout === 'floating' && (
         <div className="api-key-warning-outer">
           <span>⚠️ OpenRouter API key not configured</span>
           <span className="warning-hint">
@@ -573,7 +573,7 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
       )}
 
           {/* Split layout: Warning bar above model selector */}
-          {!isAuthenticated && layout === 'split' && (
+          {!authLoading && !isAuthenticated && layout === 'split' && (
             <div className="api-key-warning-split-top">
               <span>🔐 Please sign in to use the chat feature</span>
               <span className="warning-hint">
@@ -581,7 +581,7 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
               </span>
             </div>
           )}
-          {isAuthenticated && apiKeyMissing && layout === 'split' && (
+          {!authLoading && isAuthenticated && apiKeyMissing && layout === 'split' && (
             <div className="api-key-warning-split-top">
               <span>⚠️ OpenRouter API key not configured</span>
               <span className="warning-hint">
@@ -594,105 +594,113 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
 
           {/* Split layout: Model selector bar above input */}
           {layout === 'split' && (
-            <div className={`model-selector-bar ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
-              <div className="model-selector-wrapper" ref={modelSelectorRef}>
+            <>
+              <div className={`model-selector-bar ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
+                <div className="model-selector-wrapper" ref={modelSelectorRef}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      const newState = !showModelSelector
+                      setShowModelSelector(newState)
+                      if (!newState) {
+                        setDropdownPosition(null)
+                      }
+                    }}
+                    className="model-selector-button"
+                    title="Select AI model"
+                    disabled={apiKeyMissing || !isAuthenticated}
+                  >
+                    <span className="model-selector-text">{getSelectedModelName()}</span>
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ 
+                        transform: showModelSelector ? 'rotate(180deg)' : 'rotate(0deg)', 
+                        transition: 'transform 0.3s' 
+                      }}
+                    >
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </button>
+                  {showModelSelector && (
+                    <div 
+                      ref={dropdownRef}
+                      className="model-selector-dropdown"
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      style={dropdownPosition ? {
+                        width: `${dropdownPosition.width}px`,
+                      } : undefined}
+                    >
+                      {OPENROUTER_MODELS.map((model) => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            handleModelSelect(model.id)
+                          }}
+                          className={`model-option ${selectedModel === model.id ? 'selected' : ''}`}
+                        >
+                          <div className="model-option-content">
+                            <span className="model-option-name">{model.name}</span>
+                            <span className="model-option-provider">{model.provider}</span>
+                          </div>
+                          {selectedModel === model.id && (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {messages.length > 0 && (
+                  <button onClick={handleClearChat} className="clear-button" title="Clear chat">
+                    Clear
+                  </button>
+                )}
                 <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    const newState = !showModelSelector
-                    setShowModelSelector(newState)
-                    if (!newState) {
-                      setDropdownPosition(null)
-                    }
-                  }}
-                  className="model-selector-button"
-                  title="Select AI model"
-                  disabled={apiKeyMissing || !isAuthenticated}
+                  onClick={onToggleLayout}
+                  className="layout-toggle-button"
+                  title="Switch to floating layout"
+                  aria-label="Switch to floating layout"
                 >
-                  <span className="model-selector-text">{getSelectedModelName()}</span>
                   <svg
-                    width="12"
-                    height="12"
+                    width="16"
+                    height="16"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ 
-                      transform: showModelSelector ? 'rotate(180deg)' : 'rotate(0deg)', 
-                      transition: 'transform 0.3s' 
-                    }}
                   >
-                    <path d="M6 9l6 6 6-6" />
+                    <rect x="3" y="3" width="7" height="7" />
+                    <rect x="14" y="3" width="7" height="7" />
+                    <rect x="14" y="14" width="7" height="7" />
+                    <line x1="10" y1="3" x2="10" y2="10" />
+                    <line x1="3" y1="10" x2="10" y2="10" />
                   </svg>
                 </button>
-                {showModelSelector && (
-                  <div 
-                    ref={dropdownRef}
-                    className="model-selector-dropdown"
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    style={dropdownPosition ? {
-                      width: `${dropdownPosition.width}px`,
-                    } : undefined}
-                  >
-                    {OPENROUTER_MODELS.map((model) => (
-                      <button
-                        key={model.id}
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          handleModelSelect(model.id)
-                        }}
-                        className={`model-option ${selectedModel === model.id ? 'selected' : ''}`}
-                      >
-                        <div className="model-option-content">
-                          <span className="model-option-name">{model.name}</span>
-                          <span className="model-option-provider">{model.provider}</span>
-                        </div>
-                        {selectedModel === model.id && (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
-              {messages.length > 0 && (
-                <button onClick={handleClearChat} className="clear-button" title="Clear chat">
-                  Clear
-                </button>
-              )}
-              <button
-                onClick={onToggleLayout}
-                className="layout-toggle-button"
-                title="Switch to floating layout"
-                aria-label="Switch to floating layout"
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="3" y="3" width="7" height="7" />
-                  <rect x="14" y="3" width="7" height="7" />
-                  <rect x="14" y="14" width="7" height="7" />
-                  <line x1="10" y1="3" x2="10" y2="10" />
-                  <line x1="3" y1="10" x2="10" y2="10" />
-                </svg>
-              </button>
-            </div>
+              {/* Split layout: Disclaimer below model selector */}
+              <div className={`footer-text-outer split-footer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
+                <span className="footer-text">
+                  AI responses may contain errors. Please verify important information.
+                </span>
+              </div>
+            </>
           )}
 
           <div className="chatgpt-input-container">

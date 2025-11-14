@@ -97,7 +97,7 @@
 
 .split-chat .selected-text-banner {
   flex-shrink: 0;
-  order: 2; /* Selected text banner after model selector */
+  order: 3;
 }
 
 .split-chat .chatgpt-messages {
@@ -106,7 +106,7 @@
   overflow-x: hidden;
   min-height: 0;
   max-height: none !important;
-  order: 3; /* Chat messages after model selector */
+  order: 4;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -117,7 +117,7 @@
 .split-chat .chatgpt-input-container {
   flex-shrink: 0;
   flex-grow: 0;
-  order: 4;
+  order: 5;
   position: relative;
   z-index: 1;
   overflow: visible;
@@ -1503,6 +1503,37 @@
   white-space: nowrap;
 }
 
+/* Split layout: Footer text below model selector */
+.split-footer {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  flex-shrink: 0;
+  order: 2; /* After model selector (order: 1), before selected text banner (order: 3) */
+  margin-top: 0;
+  margin-bottom: 0;
+  padding: 8px 12px;
+  border-radius: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  white-space: normal;
+  text-align: left;
+}
+
+.split-chat .split-footer {
+  order: 2; /* Position after model selector bar (order: 1) */
+}
+
+[data-theme='dark'] .split-footer {
+  border-top-color: rgba(255, 255, 255, 0.1);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
 .theme-light .footer-text-outer {
   background: rgba(0, 0, 0, 0.25);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
@@ -1525,6 +1556,15 @@
 }
 
 .theme-dark .footer-text {
+  color: #b0b0b0;
+}
+
+/* Split layout: Footer text color (different background) */
+.split-footer .footer-text {
+  color: #666;
+}
+
+[data-theme='dark'] .split-footer .footer-text {
   color: #b0b0b0;
 }
 
