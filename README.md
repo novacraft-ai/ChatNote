@@ -1,67 +1,116 @@
 # ChatNote
 
-A web application for students to upload PDFs, make notes, and interact with an AI chatbot to help understand course materials.
+A modern web application that enables students to upload PDF documents, extract text selections, and interact with AI chatbots to enhance their understanding of course materials. Built with React, TypeScript, and a secure Node.js backend.
+
+## Overview
+
+ChatNote provides an interactive learning platform where students can:
+- Upload and view PDF documents with advanced zoom and navigation controls
+- Select and highlight text from PDFs
+- Engage with multiple AI models through a contextual chat interface
+- Store and manage their API keys securely through encrypted backend storage
+- Authenticate via Google OAuth for a seamless experience
 
 ## Features
 
-- 📄 PDF upload and preview
-- ✏️ Text selection and highlighting
-- 💬 AI chatbot with context from selected text (multiple model support)
-- 🔍 Zoom in/out functionality with fit-to-width and fit-to-height
-- 📑 Page navigation
-- 🎨 Modern, responsive UI with light/dark theme
-- 🔄 Multiple layout modes (floating and split view)
-- 🤖 Support for multiple AI models via OpenRouter API
+### Frontend Features
 
-## Getting Started
+- **PDF Viewer**: Full-featured PDF viewer with zoom controls, page navigation, and text selection
+- **AI Chat Interface**: Contextual chatbot that uses selected PDF text to provide relevant answers
+- **Multiple AI Models**: Support for various AI models via OpenRouter API (GPT OSS, DeepSeek, Llama, Qwen)
+- **Flexible Layouts**: Two layout modes - floating chat panel and split-screen view
+- **Theme Support**: Light and dark theme with smooth transitions
+- **Responsive Design**: Modern, mobile-friendly UI built with CSS Flexbox
+- **Markdown Rendering**: Chat responses support Markdown and LaTeX math rendering
 
-### Installation
+### Backend Features
 
-```bash
-npm install
+- **Google OAuth Authentication**: Secure user authentication with Google Sign-In
+- **Encrypted API Key Storage**: User API keys are encrypted (AES-256) and stored securely in MongoDB
+- **Role-Based Access**: Admin and user roles with different permissions
+- **Rate Limiting**: Protection against abuse with configurable rate limits
+- **CORS Protection**: Secure cross-origin request handling
+- **Chat Proxy**: Secure proxy to OpenRouter API with user API key management
+
+## Tech Stack
+
+### Frontend
+
+- **React 18** + **TypeScript** - Modern UI framework with type safety
+- **Vite** - Fast build tool and development server
+- **react-pdf** (PDF.js) - PDF rendering and text extraction
+- **react-markdown** + **KaTeX** - Markdown and LaTeX math rendering
+- **Modern CSS** - Flexbox-based responsive layout
+
+### Backend
+
+- **Node.js** + **Express** - RESTful API server
+- **MongoDB Atlas** - Cloud database for user data and encrypted API keys
+- **JWT** - Token-based authentication
+- **Google OAuth 2.0** - User authentication
+- **AES-256-GCM** - Encryption for API keys
+- **express-rate-limit** - Rate limiting middleware
+
+## Architecture
+
+```
+┌─────────────────┐
+│   GitHub Pages  │  Frontend (React + Vite)
+│   (Frontend)    │  - Static files
+└────────┬────────┘  - Environment variables via GitHub Secrets
+         │
+         │ HTTPS
+         │
+┌────────▼────────┐
+│   Render/Railway│  Backend (Node.js + Express)
+│   (Backend API) │  - Authentication
+└────────┬────────┘  - API key management
+         │           - Chat proxy
+         │
+         │ MongoDB Connection
+         │
+┌────────▼────────┐
+│  MongoDB Atlas  │  Database
+│                 │  - Users collection
+└─────────────────┘  - API keys collection (encrypted)
 ```
 
-### Development
+## Project Structure
 
-```bash
-npm run dev
 ```
-
-The app will be available at `http://localhost:5173`
-
-### Build
-
-```bash
-npm run build
+ChatNote/
+├── src/                    # Frontend source code
+│   ├── components/         # React components
+│   │   ├── NavBar.tsx      # Navigation bar
+│   │   ├── PDFViewer.tsx   # PDF upload and viewer
+│   │   ├── ChatGPTEmbedded.tsx  # Chat interface
+│   │   └── LoginButton.tsx # Google OAuth login
+│   ├── contexts/           # React contexts
+│   │   ├── AuthContext.tsx # Authentication state
+│   │   └── ThemeContext.tsx # Theme management
+│   ├── services/           # API services
+│   │   ├── authService.ts  # Authentication API
+│   │   ├── authenticatedChatService.ts  # Chat API
+│   │   └── openaiService.ts # Legacy OpenAI service
+│   ├── config.ts           # Configuration (models, API URLs)
+│   └── prompts/            # AI model instructions
+│       └── modelInstructions.ts
+├── backend/                # Backend server
+│   ├── server.js           # Express server
+│   ├── package.json        # Backend dependencies
+│   └── README.md           # Backend documentation
+├── public/                 # Static assets
+│   └── chatnote-icon.svg   # App icon
+└── .github/
+    └── workflows/
+        └── deploy.yml      # GitHub Actions deployment
 ```
 
 ## Configuration
 
-### API Setup
+### Supported AI Models
 
-This app uses **API-based AI models** via OpenRouter and OpenAI. You'll need to configure API keys to use the chatbot.
-
-#### Option 1: OpenRouter (Recommended - Multiple Models)
-
-1. Get your API key from [OpenRouter](https://openrouter.ai/keys)
-2. Create a `.env` file in the root directory:
-   ```
-   VITE_OPENROUTER_API_KEY=your-openrouter-api-key-here
-   ```
-
-#### Option 2: OpenAI (Legacy Support)
-
-1. Get your API key from [OpenAI Platform](https://platform.openai.com/api-keys)
-2. Add to `.env` file:
-   ```
-   VITE_OPENAI_API_KEY=your-openai-api-key-here
-   ```
-
-⚠️ **Security Warning**: For production deployments, use a backend proxy to keep your API keys secure. See [BACKEND_PROXY_SETUP.md](./BACKEND_PROXY_SETUP.md) for details.
-
-### Available Models
-
-The app supports multiple models via OpenRouter:
+The application supports multiple AI models via OpenRouter:
 
 - **GPT OSS** (OpenAI) - `openai/gpt-oss-120b`
 - **DeepSeek R1** (DeepSeek) - `tngtech/deepseek-r1t2-chimera:free`
@@ -69,112 +118,110 @@ The app supports multiple models via OpenRouter:
 - **Llama 3.3** (Meta) - `meta-llama/llama-3.3-70b-instruct:free`
 - **Qwen 3** (Qwen) - `qwen/qwen3-235b-a22b:free`
 
-You can customize available models in `src/config.ts`:
+Models can be customized in `src/config.ts`.
 
-```typescript
-export const OPENROUTER_MODELS = [
-  { id: 'openai/gpt-oss-120b', name: 'GPT OSS', provider: 'OpenAI' },
-  // Add more models here
-]
-```
+### Environment Variables
 
-### Model Configuration
+#### Frontend (GitHub Secrets)
 
-You can adjust model settings in `src/config.ts`:
+- `VITE_GOOGLE_CLIENT_ID` - Google OAuth Client ID
+- `VITE_BACKEND_URL` - Backend API URL (Render/Railway)
 
-```typescript
-export const OPENROUTER_CONFIG = {
-  apiKey: import.meta.env.VITE_OPENROUTER_API_KEY || '',
-  defaultModel: 'openai/gpt-oss-120b',
-  temperature: 0.7,      // 0-2, higher = more creative
-  maxTokens: 3000,       // Maximum tokens in response
+#### Backend (Render/Railway Environment Variables)
+
+- `MONGODB_URI` - MongoDB Atlas connection string
+- `JWT_SECRET` - JWT token signing secret
+- `GOOGLE_CLIENT_ID` - Google OAuth Client ID
+- `ADMIN_EMAILS` - Comma-separated admin email addresses
+- `ADMIN_OPENROUTER_API_KEY` - OpenRouter API key for admin users
+- `FRONTEND_URL` - Frontend URL for CORS configuration
+- `ENCRYPTION_KEY` - AES-256 encryption key for API keys
+
+## Deployment
+
+### Frontend (GitHub Pages)
+
+The frontend is deployed via GitHub Actions to GitHub Pages:
+
+1. Push code to `main` branch
+2. GitHub Actions builds the React app
+3. Deploys to `https://username.github.io/ChatNote/`
+
+See `.github/workflows/deploy.yml` for deployment configuration.
+
+### Backend (Render)
+
+The backend is deployed to Render:
+
+1. Connect GitHub repository
+2. Configure service (Root Directory: `backend`)
+3. Set environment variables
+4. Deploy automatically on push
+
+See `backend/README.md` for detailed deployment instructions.
+
+## Security
+
+- **API Key Encryption**: User API keys are encrypted using AES-256-GCM before storage
+- **JWT Authentication**: Secure token-based authentication
+- **CORS Protection**: Restricted to configured frontend origins
+- **Rate Limiting**: Prevents abuse with configurable limits
+- **Input Validation**: All user inputs are validated
+- **HTTPS Only**: All communications are encrypted
+
+## Database Schema
+
+### Users Collection
+```javascript
+{
+  _id: ObjectId,
+  googleId: String (unique),
+  email: String (unique),
+  name: String,
+  picture: String,
+  role: "admin" | "user",
+  createdAt: Date
 }
 ```
 
-### Backend Proxy (Recommended for Production)
-
-For production deployments, use a backend proxy to keep API keys secure. The app supports:
-
-- **Vercel Serverless Functions** - See [BACKEND_PROXY_SETUP.md](./BACKEND_PROXY_SETUP.md)
-- **Netlify Functions** - See [BACKEND_PROXY_SETUP.md](./BACKEND_PROXY_SETUP.md)
-- **Custom Express Server** - See `api/chat.js` for example
-
-### Deployment
-
-#### GitHub Pages
-
-1. Update the `base` path in `vite.config.ts` to match your repository name:
-   ```typescript
-   base: process.env.NODE_ENV === 'production' ? '/your-repo-name/' : '/',
-   ```
-
-2. Enable GitHub Pages in your repository settings:
-   - Go to Settings → Pages
-   - Source: GitHub Actions
-
-3. Push to the `main` branch - the GitHub Action will automatically deploy
-
-#### Vercel / Netlify
-
-For serverless function support, deploy to Vercel or Netlify and configure environment variables in the dashboard.
-
-## Project Structure
-
-```
-src/
-├── components/
-│   ├── NavBar.tsx              # Top navigation bar
-│   ├── PDFViewer.tsx           # PDF upload and viewer component
-│   └── ChatGPTEmbedded.tsx     # Chat interface component (API-based)
-├── services/
-│   ├── openaiService.ts        # OpenAI API service
-│   ├── openaiServiceProxy.ts   # OpenAI API via backend proxy
-│   ├── multiModelService.ts    # Multi-model routing service
-│   ├── modelRouter.ts          # Model selection logic
-│   └── webSearch.ts            # Web search integration
-├── contexts/
-│   └── ThemeContext.tsx        # Theme management (light/dark)
-├── prompts/
-│   └── model-instructions.md   # AI model instructions
-├── App.tsx                     # Main app component
-├── config.ts                   # Configuration (API keys, models)
-└── main.tsx                    # Entry point
+### API Keys Collection
+```javascript
+{
+  _id: ObjectId,
+  userId: ObjectId (reference to users),
+  encryptedKey: String (AES-256 encrypted),
+  updatedAt: Date
+}
 ```
 
-## Tech Stack
+## API Endpoints
 
-- **React 18** + **TypeScript** - Modern UI framework
-- **Vite** - Fast build tool and dev server
-- **react-pdf** (PDF.js) - PDF rendering and text extraction
-- **react-markdown** + **KaTeX** - Markdown and LaTeX math rendering
-- **OpenRouter API** - Access to multiple AI models
-- **OpenAI API** - Legacy support for OpenAI models
-- **Modern CSS** - Flexbox-based responsive layout with smooth transitions
+### Authentication
+- `POST /api/auth/google` - Verify Google token, return JWT
+- `GET /api/auth/me` - Get current user (requires auth)
 
-## Usage
+### API Key Management
+- `POST /api/user/api-key` - Save/update user's API key (encrypted)
+- `GET /api/user/api-key/status` - Check if user has API key
 
-1. **Upload a PDF**: Click "Upload PDF" to select a PDF file
-2. **Navigate pages**: Use Previous/Next buttons or page input
-3. **Zoom controls**: 
-   - Use zoom in/out buttons
-   - Use "Fit to width" button to fit PDF width to window
-   - Use "Fit to height" button to fit one page height to window
-4. **Select text**: Click and drag to select text in the PDF
-5. **Chat with AI**:
-   - Selected text automatically provides context to the AI
-   - Choose from multiple AI models in the model selector
-   - Switch between floating and split layouts
-   - Use "Use in Chat" button to quickly reference selected text
-6. **Layout modes**:
-   - **Floating**: Chat appears as a floating panel at the bottom
-   - **Split**: PDF and chat appear side-by-side
+### Chat
+- `POST /api/chat` - Proxy chat requests to OpenRouter (requires auth)
 
 ## Setup Guides
 
-- **[CHATGPT_SETUP.md](./CHATGPT_SETUP.md)** - Detailed OpenAI API setup instructions
-- **[BACKEND_PROXY_SETUP.md](./BACKEND_PROXY_SETUP.md)** - Secure backend proxy setup for production
+- **[MONGODB_ATLAS_SETUP.md](./MONGODB_ATLAS_SETUP.md)** - MongoDB Atlas database setup
+- **[SETUP_GUIDE.md](./SETUP_GUIDE.md)** - Complete setup and deployment guide
 
 ## License
 
-MIT
+Copyright (c) 2025. All rights reserved.
 
+This software and associated documentation files (the "Software") are the proprietary and confidential property of the owner. 
+
+**No part of this Software may be:**
+- Copied, modified, or distributed
+- Used for any purpose without explicit written permission
+- Reverse engineered or decompiled
+- Used to create derivative works
+
+Unauthorized use, reproduction, or distribution of this Software, or any portion of it, may result in severe civil and criminal penalties, and will be prosecuted to the maximum extent possible under the law.
