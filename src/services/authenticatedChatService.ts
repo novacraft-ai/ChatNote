@@ -44,7 +44,8 @@ export async function sendChatMessage(
   messages: ChatMessage[],
   context?: string,
   onChunk?: (chunk: string) => void,
-  model?: string
+  model?: string,
+  abortSignal?: AbortSignal
 ): Promise<string> {
   const token = getAuthToken()
   if (!token) {
@@ -61,14 +62,24 @@ export async function sendChatMessage(
       stream: !!onChunk
     }
 
-    const response = await fetch(`${BACKEND_URL}/api/chat`, {
+    let response: Response
+    try {
+      response = await fetch(`${BACKEND_URL}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal: abortSignal
     })
+    } catch (error) {
+      // Handle abort error from fetch
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new DOMException('Request aborted by user', 'AbortError')
+      }
+      throw error
+    }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: { message: 'Unknown error' } }))
@@ -94,7 +105,27 @@ export async function sendChatMessage(
       let buffer = ''
 
       while (true) {
-        const { done, value } = await reader.read()
+        // Check if aborted
+        if (abortSignal?.aborted) {
+          reader.cancel()
+          throw new DOMException('Request aborted by user', 'AbortError')
+        }
+        
+        let done: boolean
+        let value: Uint8Array | undefined
+        try {
+          const result = await reader.read()
+          done = result.done
+          value = result.value
+        } catch (error) {
+          // Handle abort during read
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            reader.cancel()
+            throw new DOMException('Request aborted by user', 'AbortError')
+          }
+          throw error
+        }
+        
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
@@ -150,6 +181,10 @@ export async function sendChatMessage(
     const data: ChatCompletionResponse = await response.json()
     return data.choices[0]?.message?.content || 'No response from API'
   } catch (error) {
+    // Re-throw abort errors as-is
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error
+    }
     console.error('Chat service error:', error)
     throw error
   }

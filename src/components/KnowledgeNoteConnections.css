@@ -1,0 +1,21 @@
+.knowledge-note-connections {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.connection-svg {
+  overflow: visible;
+}
+
+.knowledge-note-marker {
+  transition: all 0.2s;
+}
+
+.knowledge-note-marker:hover {
+  r: 10;
+  opacity: 0.8;
+}
+

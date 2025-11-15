@@ -13,6 +13,26 @@
   overflow: hidden;
   position: relative;
   transition: flex-direction 0.3s ease;
+  background-color: #f5f5f5; /* Light theme background */
+}
+
+[data-theme='dark'] .main-content {
+  background-color: #1a1a1a; /* Dark theme background to match PDF viewer */
+}
+
+/* In float layout, when knowledge notes are visible, add padding to make room */
+.main-content:not(.split-layout).has-knowledge-notes,
+.main-content:not(.split-layout):has(.knowledge-notes-panel.floating-layout) {
+  padding-right: 370px; /* 350px panel width + 20px spacing */
+  transition: padding-right 0.3s ease;
+}
+
+/* Remove padding on narrow screens where knowledge notes become a drawer */
+@media (max-width: 1024px) {
+  .main-content:not(.split-layout).has-knowledge-notes,
+  .main-content:not(.split-layout):has(.knowledge-notes-panel.floating-layout) {
+    padding-right: 0; /* No padding needed for overlay drawer */
+  }
 }
 
 /* Split layout: side-by-side */
@@ -25,6 +45,20 @@
   min-width: 0;
 }
 
+/* Knowledge notes panel positioning */
+.main-content.split-layout {
+  position: relative;
+}
+
+/* In split layout, knowledge notes go between PDF and chat */
+.main-content.split-layout .knowledge-notes-panel.split-layout {
+  order: 2; /* Between PDF (order: 1) and chat (order: 3) */
+}
+
+.main-content.split-layout .chat-container.split-chat {
+  order: 3;
+}
+
 /* Chat container */
 .chat-container {
   transition: all 0.3s ease;
@@ -33,15 +67,25 @@
 /* Floating chat bar at the bottom */
 .chat-container.floating-chat {
   position: fixed;
-  bottom: 90px; /* Increased to avoid PDF navigation controls (60px controls + 30px spacing) */
-  left: 20px;
-  right: 20px;
+  bottom: 90px; /* Keep at bottom, avoid PDF navigation controls */
+  left: 50%; /* Start from center of viewport */
+  transform: translateX(-50%); /* Center horizontally */
   max-width: 600px; /* Reduced from 1200px to make it narrower */
-  margin: 0 auto;
+  width: 600px; /* Fixed width */
+  margin: 0; /* Remove auto margin */
   z-index: 1000;
   pointer-events: none; /* Allow clicks to pass through to PDF when chat is closed */
-  transition: all 0.3s ease;
+  transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease, left 0.3s ease;
   overflow: visible !important;
+}
+
+/* When knowledge notes are visible, adjust horizontal position to center in PDF viewer area */
+.main-content:not(.split-layout).has-knowledge-notes .chat-container.floating-chat,
+.main-content:not(.split-layout):has(.knowledge-notes-panel.floating-layout) .chat-container.floating-chat {
+  /* Center in the PDF viewer area: (viewport width - knowledge notes width) / 2 */
+  /* Knowledge notes panel is 350px + 20px spacing = 370px */
+  left: calc((100vw - 370px) / 2);
+  transform: translateX(-50%);
 }
 
 .chat-container.floating-chat > * {
@@ -105,12 +149,44 @@
   border-right: 1px solid rgba(255, 255, 255, 0.15);
 }
 
+/* Hide chat when knowledge notes are open on narrow screens */
+@media (max-width: 1024px) {
+  /* Float layout: Hide chat when knowledge notes are open */
+  .chat-container.floating-chat.knowledge-notes-open {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(20px); /* Slight downward movement for smooth transition */
+  }
+
+  /* Split layout: Hide chat when knowledge notes are open (if knowledge notes are visible) */
+  .chat-container.split-chat.knowledge-notes-open {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+    overflow: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease, width 0.3s ease;
+  }
+}
+
 /* Responsive design for smaller screens */
 @media (max-width: 768px) {
   .chat-container.floating-chat {
     bottom: 70px; /* Slightly less padding on mobile */
-    left: 10px;
-    right: 10px;
+    left: 50%; /* Center horizontally on mobile */
+    right: auto;
+    width: auto;
+    max-width: calc(100vw - 20px); /* Full width minus padding */
+    transform: translateX(-50%); /* Center horizontally */
+  }
+  
+  /* On mobile, when knowledge notes are visible, chat is hidden anyway */
+  .main-content:not(.split-layout).has-knowledge-notes .chat-container.floating-chat,
+  .main-content:not(.split-layout):has(.knowledge-notes-panel.floating-layout) .chat-container.floating-chat {
+    left: 50%; /* Reset to viewport center on mobile */
   }
 
   .main-content.split-layout {

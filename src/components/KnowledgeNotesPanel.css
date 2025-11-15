@@ -1,0 +1,659 @@
+.knowledge-notes-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-left: 1px solid rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  overflow: hidden; /* Hide overflow - notes scroll with PDF */
+}
+
+.knowledge-notes-panel.theme-dark {
+  background: rgba(32, 33, 35, 0.95);
+  border-left-color: rgba(255, 255, 255, 0.1);
+}
+
+.knowledge-notes-panel.floating-layout {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 350px;
+  height: 100%;
+  z-index: 100;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.1);
+  overflow: hidden; /* Hide overflow - notes will scroll with PDF */
+  /* Ensure it's positioned relative to main-content */
+}
+
+/* Ensure drawer is always on top when visible on narrow screens */
+@media (max-width: 1024px) {
+  .knowledge-notes-panel.floating-layout.knowledge-notes-visible {
+    z-index: 10010 !important; /* Well above backdrop (1000), chat (1000), and other elements */
+  }
+}
+
+.knowledge-notes-panel.split-layout {
+  width: 350px;
+  flex-shrink: 0;
+  height: 100%;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Responsive design: Convert to drawer overlay on narrow screens */
+@media (max-width: 1024px) {
+  /* Float layout: Convert to overlay drawer */
+  .knowledge-notes-panel.floating-layout {
+    position: fixed;
+    top: 60px; /* Below navbar */
+    right: -370px; /* Hidden off-screen by default */
+    width: min(350px, 85vw); /* Responsive width, max 350px */
+    height: calc(100vh - 60px);
+    z-index: 10010; /* Well above backdrop (1000), chat (1000), and other elements */
+    transition: right 0.3s ease;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Show drawer when visible */
+  .knowledge-notes-panel.floating-layout.knowledge-notes-visible {
+    right: 0;
+    z-index: 10010 !important; /* Ensure it's on top of everything except navbar */
+  }
+
+  /* Split layout: Make it collapsible/narrower on medium screens */
+  .knowledge-notes-panel.split-layout {
+    width: min(300px, 30vw);
+    min-width: 250px;
+  }
+}
+
+/* Very narrow screens (mobile) */
+@media (max-width: 768px) {
+  /* Float layout: Full-width drawer on mobile */
+  .knowledge-notes-panel.floating-layout {
+    width: min(320px, 90vw);
+    right: -100vw; /* Completely off-screen */
+  }
+
+  .knowledge-notes-panel.floating-layout.knowledge-notes-visible {
+    right: 0;
+  }
+
+  /* Split layout: Hide knowledge notes on very narrow screens to prioritize PDF and chat */
+  .knowledge-notes-panel.split-layout {
+    display: none;
+  }
+
+  /* Remove padding when knowledge notes are hidden on mobile */
+  .main-content:not(.split-layout).has-knowledge-notes {
+    padding-right: 0;
+  }
+}
+
+/* Backdrop overlay - hidden by default on wide screens */
+.knowledge-notes-backdrop {
+  display: none; /* Hidden by default */
+}
+
+/* Add backdrop overlay when drawer is open on narrow screens */
+/* Note: Backdrop is optional now since chat is hidden instead */
+@media (max-width: 1024px) {
+  .knowledge-notes-backdrop {
+    display: none; /* No backdrop needed since chat is hidden */
+  }
+}
+
+.knowledge-notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  position: relative;
+  flex-shrink: 0; /* Prevent header from shrinking */
+  z-index: 10; /* Ensure header stays on top */
+  background: inherit; /* Match panel background */
+}
+
+.display-mode-toggle {
+  transition: all 0.2s ease;
+  color: #1a1a1a !important; /* Light theme text color */
+}
+
+.theme-dark .display-mode-toggle {
+  color: #ececf1 !important; /* Light text for dark theme */
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.display-mode-toggle:hover {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  border-color: rgba(0, 0, 0, 0.3) !important;
+}
+
+.theme-dark .display-mode-toggle:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  color: #ffffff !important; /* Even lighter on hover in dark theme */
+}
+
+/* Show close button on mobile */
+@media (max-width: 1024px) {
+  .knowledge-notes-close {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    transition: background 0.2s, color 0.2s;
+    color: #1a1a1a !important; /* Light theme color - use !important to override inline styles */
+  }
+
+  .theme-dark .knowledge-notes-close {
+    color: #ececf1 !important; /* Light color for dark theme - use !important */
+  }
+
+  .knowledge-notes-close:hover {
+    background: rgba(0, 0, 0, 0.1);
+  }
+
+  .theme-dark .knowledge-notes-close:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff !important; /* Even lighter on hover in dark theme */
+  }
+}
+
+.theme-dark .knowledge-notes-header {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.knowledge-notes-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.theme-dark .knowledge-notes-header h3 {
+  color: #ececf1;
+}
+
+.notes-count {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.theme-dark .notes-count {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ececf1;
+}
+
+.notes-count-button {
+  position: relative;
+  background: rgba(0, 0, 0, 0.1);
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1a1a1a;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  min-width: 32px;
+  overflow: hidden;
+}
+
+.theme-dark .notes-count-button {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ececf1;
+}
+
+.notes-count-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.notes-count-button:hover:not(:disabled) {
+  background: rgba(255, 0, 0, 0.1);
+}
+
+.theme-dark .notes-count-button:hover:not(:disabled) {
+  background: rgba(255, 0, 0, 0.2);
+}
+
+.notes-count-text {
+  display: inline-block;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.notes-count-clear-icon {
+  position: absolute;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  flex-shrink: 0;
+  color: #ff4444;
+}
+
+.notes-count-button:hover:not(:disabled) .notes-count-text {
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+.notes-count-button:hover:not(:disabled) .notes-count-clear-icon {
+  opacity: 1;
+  visibility: visible;
+}
+
+.theme-dark .notes-count-button:hover:not(:disabled) .notes-count-clear-icon {
+  color: #ff4444;
+}
+
+.theme-light .notes-count-button:hover:not(:disabled) .notes-count-clear-icon {
+  color: #ff4444;
+}
+
+/* Confirmation Dialog */
+.confirm-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10030; /* Higher than knowledge notes panel (10010) and settings modal (10020) */
+  padding: 20px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.confirm-dialog {
+  background: white;
+  border-radius: 12px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: modalSlideIn 0.2s ease-out;
+  overflow: hidden;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.theme-dark .confirm-dialog {
+  background: #2a2a2a;
+  color: #ececf1;
+}
+
+.confirm-dialog-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.theme-dark .confirm-dialog-header {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.confirm-dialog-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.theme-dark .confirm-dialog-header h3 {
+  color: #ececf1;
+}
+
+.confirm-dialog-content {
+  padding: 24px;
+}
+
+.confirm-dialog-content p {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333;
+}
+
+.theme-dark .confirm-dialog-content p {
+  color: #ececf1;
+}
+
+.confirm-dialog-content p:last-of-type {
+  margin-bottom: 0;
+}
+
+.confirm-dialog-content strong {
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.theme-dark .confirm-dialog-content strong {
+  color: #ececf1;
+}
+
+.confirm-dialog-warning {
+  color: #ff4444 !important;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  gap: 12px;
+  padding: 20px 24px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  justify-content: flex-end;
+}
+
+.theme-dark .confirm-dialog-actions {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+.confirm-dialog-button {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid;
+}
+
+.confirm-dialog-button-cancel {
+  background: transparent;
+  border-color: rgba(0, 0, 0, 0.2);
+  color: #333;
+}
+
+.theme-dark .confirm-dialog-button-cancel {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ececf1;
+}
+
+.confirm-dialog-button-cancel:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.3);
+}
+
+.theme-dark .confirm-dialog-button-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.confirm-dialog-button-confirm {
+  background: #ff4444;
+  border-color: #ff4444;
+  color: white;
+}
+
+.confirm-dialog-button-confirm:hover {
+  background: #cc0000;
+  border-color: #cc0000;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 68, 68, 0.3);
+}
+
+.confirm-dialog-button-confirm:active {
+  transform: translateY(0);
+}
+
+.knowledge-notes-list {
+  flex: 1;
+  padding: 0;
+  position: relative; /* For absolute positioning of notes in following mode */
+  min-height: 100%;
+  will-change: transform; /* Optimize for transform animations */
+}
+
+.knowledge-notes-list.following-mode {
+  overflow: visible; /* No scrollbar - notes scroll with PDF */
+  /* No padding needed since notes are absolutely positioned */
+}
+
+.knowledge-notes-list.stack-mode {
+  overflow-y: auto; /* Allow scrolling in stack mode */
+  padding: 8px 0; /* Add padding for stacked notes */
+}
+
+.empty-notes {
+  padding: 40px 20px;
+  text-align: center;
+  color: #666;
+  font-size: 14px;
+}
+
+.theme-dark .empty-notes {
+  color: #999;
+}
+
+.knowledge-note-item {
+  background: rgba(0, 0, 0, 0.03);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+/* Front note styling - more prominent when brought to front */
+.knowledge-notes-list.following-mode .knowledge-note-item.note-front {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.theme-dark .knowledge-notes-list.following-mode .knowledge-note-item.note-front {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-dark .knowledge-note-item {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.knowledge-note-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(25px) saturate(180%);
+  -webkit-backdrop-filter: blur(25px) saturate(180%);
+  border-color: rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.theme-dark .knowledge-note-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(25px) saturate(180%);
+  -webkit-backdrop-filter: blur(25px) saturate(180%);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.note-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.note-page-badge,
+.note-text-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #4285f4;
+  color: white;
+}
+
+.note-text-badge {
+  background: #10a37f;
+}
+
+.note-date {
+  font-size: 11px;
+  color: #666;
+}
+
+.theme-dark .note-date {
+  color: #999;
+}
+
+.note-delete-button {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ff4444;
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.note-delete-button:hover {
+  background: #cc0000;
+  transform: scale(1.1);
+}
+
+.note-linked-text {
+  font-size: 12px;
+  color: #4285f4;
+  font-style: italic;
+  margin-bottom: 8px;
+  padding: 6px;
+  background: rgba(66, 133, 244, 0.1);
+  border-radius: 4px;
+  border-left: 3px solid #4285f4;
+}
+
+.theme-dark .note-linked-text {
+  color: #7baaf7;
+  background: rgba(66, 133, 244, 0.15);
+}
+
+.note-content-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.note-content {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #1a1a1a;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  cursor: default;
+  user-select: text;
+}
+
+.note-content.collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-content.expanded {
+  display: block;
+  overflow: visible;
+}
+
+.theme-dark .note-content {
+  color: #ececf1;
+}
+
+.note-content-ellipsis {
+  color: #999;
+  font-weight: bold;
+}
+
+.theme-dark .note-content-ellipsis {
+  color: #666;
+}
+
+.note-expand-button {
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #666;
+  transition: all 0.2s;
+  width: 100%;
+  font-size: 12px;
+  z-index: 20;
+  position: relative;
+  pointer-events: auto;
+  flex-shrink: 0;
+}
+
+.theme-dark .note-expand-button {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #999;
+}
+
+.note-expand-button:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.3);
+  color: #333;
+}
+
+.theme-dark .note-expand-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #ececf1;
+}
+

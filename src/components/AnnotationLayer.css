@@ -1,0 +1,193 @@
+.annotation-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none; /* Allow text selection to pass through */
+  z-index: 10;
+  /* Match the canvas size exactly */
+  box-sizing: border-box;
+}
+
+/* Don't enable pointer events on the layer even when it has annotations */
+/* Individual annotations will handle their own pointer events */
+
+.annotation {
+  position: absolute;
+  pointer-events: all;
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+
+.annotation.selected {
+  outline: 2px solid #4285f4;
+  outline-offset: 2px;
+}
+
+.textbox-annotation {
+  min-width: 50px;
+  min-height: 30px;
+  display: inline-flex; /* Use inline-flex so container shrinks to content */
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  width: fit-content !important; /* Fit to content size, override inline style */
+  height: fit-content !important; /* Fit to content size, override inline style */
+  box-sizing: border-box;
+}
+
+.textbox-content {
+  display: inline-block; /* Allow content to size naturally */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  text-align: center;
+  cursor: text;
+  user-select: text;
+  white-space: pre-wrap; /* Preserve whitespace and wrap */
+  line-height: 1.2; /* Better line spacing */
+}
+
+.textbox-input {
+  min-width: 50px;
+  min-height: 30px;
+  width: fit-content; /* Fit to content */
+  height: auto;
+  border: none;
+  outline: none;
+  background: transparent;
+  resize: none;
+  text-align: center;
+  font-family: inherit;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  user-select: text;
+  white-space: pre-wrap; /* Preserve whitespace and wrap */
+}
+
+.image-annotation {
+  min-width: 50px;
+  min-height: 50px;
+  display: flex; /* Use flex to center image */
+  align-items: center;
+  justify-content: center;
+  overflow: visible; /* Allow border to show */
+  box-sizing: border-box;
+}
+
+.image-annotation img {
+  pointer-events: auto; /* Allow clicks on image to select annotation */
+  user-select: none; /* Prevent text selection on image */
+  display: block; /* Remove inline spacing */
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* Maintain aspect ratio - container is already sized to match image */
+}
+
+.delete-button {
+  position: absolute;
+  top: -12px;
+  left: -12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #ff4444;
+  color: white;
+  border: 2px solid white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: bold;
+  z-index: 1000;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.delete-button:hover {
+  background: #cc0000;
+  transform: scale(1.1);
+}
+
+.resize-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #4285f4;
+  border: 2px solid white;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 1001;
+}
+
+.resize-handle[data-handle='nw'] {
+  top: -4px;
+  left: -4px;
+  cursor: nw-resize;
+}
+
+.resize-handle[data-handle='ne'] {
+  top: -4px;
+  right: -4px;
+  cursor: ne-resize;
+}
+
+.resize-handle[data-handle='sw'] {
+  bottom: -4px;
+  left: -4px;
+  cursor: sw-resize;
+}
+
+.resize-handle[data-handle='se'] {
+  bottom: -4px;
+  right: -4px;
+  cursor: se-resize;
+}
+
+.resize-handle[data-handle='n'] {
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: n-resize;
+}
+
+.resize-handle[data-handle='s'] {
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  cursor: s-resize;
+}
+
+.resize-handle[data-handle='w'] {
+  top: 50%;
+  left: -4px;
+  transform: translateY(-50%);
+  cursor: w-resize;
+}
+
+.resize-handle[data-handle='e'] {
+  top: 50%;
+  right: -4px;
+  transform: translateY(-50%);
+  cursor: e-resize;
+}
+
+.rotate-handle {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 20px;
+  background: #4285f4;
+  border: 2px solid white;
+  border-radius: 50%;
+  cursor: grab;
+  z-index: 1001;
+}
+
+.rotate-handle:active {
+  cursor: grabbing;
+}
+

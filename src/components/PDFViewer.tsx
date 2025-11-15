@@ -3,15 +3,39 @@ import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
 import './PDFViewer.css'
+import AnnotationLayer from './AnnotationLayer'
+import AnnotationToolbar from './AnnotationToolbar'
+import KnowledgeNoteConnections from './KnowledgeNoteConnections'
+import { Annotation, ImageAnnotation, TextBoxAnnotation, COMMON_COLORS } from '../types/annotations'
+import { saveAnnotatedPDF, downloadPDF } from '../utils/pdfAnnotationSaver'
+import { KnowledgeNote } from '../types/knowledgeNotes'
 
 interface PDFViewerProps {
   file: File | null
   onFileUpload: (file: File) => void
-  onTextSelection: (text: string) => void
+  onTextSelection: (text: string, pageNumber?: number, textYPosition?: number) => void
   layout?: 'floating' | 'split'
+  onPageChange?: (pageNumber: number) => void
+  showKnowledgeNotes?: boolean
+  onToggleKnowledgeNotes?: () => void
+  knowledgeNotes?: KnowledgeNote[]
+  onScrollToPage?: (pageNumber: number) => void
+  onNoteClick?: (note: KnowledgeNote) => void
+  pdfContentRef?: React.RefObject<HTMLDivElement> // Pass ref for scroll sync
 }
 
-function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }: PDFViewerProps) {
+function PDFViewer({ 
+  file, 
+  onFileUpload, 
+  onTextSelection, 
+  layout = 'floating',
+  onPageChange,
+  showKnowledgeNotes = true,
+  onToggleKnowledgeNotes,
+  knowledgeNotes = [],
+  onScrollToPage,
+  onNoteClick,
+}: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number>(0)
   const [pageNumber, setPageNumber] = useState<number>(1)
   const [scale, setScale] = useState<number>(1.0)
@@ -21,8 +45,16 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const pdfContentRef = useRef<HTMLDivElement>(null)
   const pdfViewerRef = useRef<HTMLDivElement>(null)
+  const pdfControlsTopRef = useRef<HTMLDivElement>(null)
+  const pdfControlsBottomRef = useRef<HTMLDivElement>(null)
   const isScrollingRef = useRef(false)
   const pageDimensionsRef = useRef<Map<number, { width: number; height: number }>>(new Map())
+  
+  // Annotation state
+  const [annotations, setAnnotations] = useState<Annotation[]>([])
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+  const [annotationMode, setAnnotationMode] = useState<'textbox' | 'image' | 'select' | null>('select')
+  const [isDragOver, setIsDragOver] = useState(false)
 
   const fileUrl = useMemo(() => {
     if (!file) return null
@@ -70,9 +102,17 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages)
-    setPageNumber(1)
+    const initialPage = 1
+    setPageNumber(initialPage)
+    // Use setTimeout to avoid calling onPageChange during render
+    setTimeout(() => {
+      onPageChange?.(initialPage)
+    }, 0)
     pageRefs.current.clear()
     pageDimensionsRef.current.clear()
+    // Clear annotations when new PDF is loaded
+    setAnnotations([])
+    setSelectedAnnotationId(null)
   }
 
   const onPageLoadSuccess = (pageData: { pageNumber: number; page: any }) => {
@@ -149,6 +189,10 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
       if (scrollTop < 100) {
         setPageNumber((prevPage) => {
           if (prevPage !== 1) {
+            // Use setTimeout to avoid calling onPageChange during render
+            setTimeout(() => {
+              onPageChange?.(1)
+            }, 0)
             return 1
           }
           return prevPage
@@ -202,6 +246,10 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
 
       setPageNumber((prevPage) => {
         if (bestPage !== prevPage) {
+          // Use setTimeout to avoid calling onPageChange during render
+          setTimeout(() => {
+            onPageChange?.(bestPage)
+          }, 0)
           return bestPage
         }
         return prevPage
@@ -217,7 +265,7 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
       }
       container?.removeEventListener('scroll', handleScroll)
     }
-  }, [numPages])
+  }, [numPages, onPageChange])
 
   const onDocumentLoadError = (error: Error) => {
     console.error('PDF load error:', error)
@@ -235,13 +283,35 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
     if (pageElement && pdfContentRef.current) {
       isScrollingRef.current = true
       setPageNumber(page)
+      onPageChange?.(page)
       pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
       // Keep the flag true longer to prevent scroll detection from interfering
       setTimeout(() => {
         isScrollingRef.current = false
       }, 1500)
     }
-  }, [])
+  }, [onPageChange])
+
+  // Expose scrollToPage, pdfContentRef, and viewer height to parent for knowledge notes navigation
+  useEffect(() => {
+    if (onScrollToPage) {
+      // Store the scroll function so App can call it
+      ;(window as any).__pdfScrollToPage = scrollToPage
+    }
+    // Expose pdfContentRef for scroll sync
+    if (pdfContentRef.current) {
+      ;(window as any).__pdfContentRef = pdfContentRef.current
+    }
+    // Expose viewer height
+    if (pdfViewerRef.current) {
+      ;(window as any).__pdfViewerHeight = pdfViewerRef.current.clientHeight
+    }
+    return () => {
+      delete (window as any).__pdfScrollToPage
+      delete (window as any).__pdfContentRef
+      delete (window as any).__pdfViewerHeight
+    }
+  }, [scrollToPage, onScrollToPage, numPages, scale])
 
   const goToPrevPage = () => {
     const newPage = Math.max(1, pageNumber - 1)
@@ -396,14 +466,15 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
     if (!pdfViewerRef.current || pageDimensionsRef.current.size === 0) return
 
     const viewerRect = pdfViewerRef.current.getBoundingClientRect()
-    // In split mode, use the viewer width; in float mode, use window width
+    // In split mode, use the viewer width; in float mode, use viewer width (which accounts for knowledge notes)
     let availableWidth: number
     if (layout === 'split') {
       // In split mode, the PDF viewer takes up the remaining space after the chat panel
       availableWidth = viewerRect.width - 40 // Account for padding (20px on each side)
     } else {
-      // In float mode, use the full window width
-      availableWidth = window.innerWidth - 40 // Account for padding
+      // In float mode, use the actual PDF viewer width (which is reduced when knowledge notes are visible)
+      // The viewerRect.width already accounts for the knowledge notes panel if it's visible
+      availableWidth = viewerRect.width - 40 // Account for padding (20px on each side)
     }
     
     // Get the first page dimensions (assuming all pages have similar dimensions)
@@ -421,7 +492,28 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
     if (!pdfViewerRef.current || pageDimensionsRef.current.size === 0) return
 
     const viewerRect = pdfViewerRef.current.getBoundingClientRect()
-    const availableHeight = viewerRect.height - 100 // Account for controls (top + bottom)
+    
+    // Get actual heights of control bars
+    let topControlsHeight = 0
+    let bottomControlsHeight = 0
+    
+    if (pdfControlsTopRef.current) {
+      topControlsHeight = pdfControlsTopRef.current.getBoundingClientRect().height
+    }
+    
+    if (pdfControlsBottomRef.current) {
+      bottomControlsHeight = pdfControlsBottomRef.current.getBoundingClientRect().height
+    }
+    
+    // Also account for AnnotationToolbar if present
+    let annotationToolbarHeight = 0
+    const annotationToolbar = pdfViewerRef.current.querySelector('.annotation-toolbar')
+    if (annotationToolbar) {
+      annotationToolbarHeight = annotationToolbar.getBoundingClientRect().height
+    }
+    
+    // Calculate available height: viewer height minus all control bars
+    const availableHeight = viewerRect.height - topControlsHeight - bottomControlsHeight - annotationToolbarHeight
     
     // Get the current page dimensions
     const currentPageDims = pageDimensionsRef.current.get(pageNumber)
@@ -438,23 +530,331 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
     const selection = window.getSelection()
     if (selection && selection.toString().trim()) {
       const text = selection.toString().trim()
-      onTextSelection(text)
+      
+      // Calculate the Y position of selected text
+      let textYPosition: number | undefined
+      let selectedPageNumber: number | undefined
+      
+      if (selection.rangeCount > 0 && pdfContentRef.current) {
+        const range = selection.getRangeAt(0)
+        const rect = range.getBoundingClientRect()
+        const containerRect = pdfContentRef.current.getBoundingClientRect()
+        const selectionTop = rect.top - containerRect.top + pdfContentRef.current.scrollTop
+        
+        // Find the page that contains this selection
+        for (let i = 1; i <= numPages; i++) {
+          const pageElement = pageRefs.current.get(i)
+          if (pageElement) {
+            const pageTop = pageElement.offsetTop
+            const pageHeight = pageElement.offsetHeight
+            const pageBottom = pageTop + pageHeight
+            
+            if (selectionTop >= pageTop && selectionTop <= pageBottom) {
+              selectedPageNumber = i
+              // Calculate relative Y position within the page (0-1)
+              const relativeY = (selectionTop - pageTop) / pageHeight
+              textYPosition = Math.max(0, Math.min(1, relativeY))
+              break
+            }
+          }
+        }
+      }
+      
+      onTextSelection(text, selectedPageNumber, textYPosition)
     } else {
       // Clear selection when user clicks elsewhere or deselects
-      onTextSelection('')
+      onTextSelection('', undefined, undefined)
     }
-  }, [onTextSelection])
+  }, [onTextSelection, numPages])
 
   // Handle clicks to clear selection when clicking outside selected text
-  const handleClick = useCallback(() => {
+  // Also handles text box creation when in textbox mode
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    // Check if click was on an annotation (annotation layer or its children)
+    const target = e.target as HTMLElement
+    const isAnnotationClick = 
+      target.closest('.annotation') !== null ||
+      target.closest('.annotation-layer') !== null ||
+      target.closest('.resize-handle') !== null ||
+      target.closest('.rotate-handle') !== null ||
+      target.closest('.delete-button') !== null ||
+      target.classList.contains('annotation') ||
+      target.classList.contains('annotation-layer') ||
+      target.classList.contains('resize-handle') ||
+      target.classList.contains('rotate-handle') ||
+      target.classList.contains('delete-button')
+    
     // Small delay to allow text selection to complete first
     setTimeout(() => {
       const selection = window.getSelection()
-      if (!selection || !selection.toString().trim()) {
+      const hasTextSelection = selection && selection.toString().trim().length > 0
+      
+      if (!hasTextSelection) {
         onTextSelection('')
       }
-    }, 10)
-  }, [onTextSelection])
+      
+      // Only deselect annotation if clicking outside annotations and not selecting text
+      if (annotationMode === 'select' && !isAnnotationClick && !hasTextSelection) {
+        setSelectedAnnotationId(null)
+      }
+      
+      // Handle text box creation when in textbox mode
+      // This is now handled here since annotation layer has pointer-events: none
+      if (annotationMode === 'textbox' && !isAnnotationClick && !hasTextSelection) {
+        // Find which page was clicked
+        const pdfContent = pdfContentRef.current
+        if (!pdfContent) return
+        
+        // Find the page that contains this click
+        let targetPage = pageNumber
+        let relativeX = 0.5
+        let relativeY = 0.5
+        
+        for (let i = 1; i <= numPages; i++) {
+          const pageElement = pageRefs.current.get(i)
+          if (pageElement) {
+            const pageRect = pageElement.getBoundingClientRect()
+            const containerRect = pdfContent.getBoundingClientRect()
+            if (containerRect) {
+              const pageRelativeX = e.clientX - pageRect.left
+              const pageRelativeY = e.clientY - pageRect.top
+              
+              if (
+                pageRelativeX >= 0 &&
+                pageRelativeX <= pageRect.width &&
+                pageRelativeY >= 0 &&
+                pageRelativeY <= pageRect.height
+              ) {
+                targetPage = i
+                const pageDims = pageDimensionsRef.current.get(i)
+                if (pageDims) {
+                  relativeX = pageRelativeX / (pageDims.width * scale)
+                  relativeY = pageRelativeY / (pageDims.height * scale)
+                }
+                break
+              }
+            }
+          }
+        }
+        
+        // Create text box annotation
+        const pageDims = pageDimensionsRef.current.get(targetPage)
+        if (pageDims) {
+          // Constrain coordinates to page bounds
+          const constrainedX = Math.max(0, Math.min(1 - 0.2, relativeX - 0.1))
+          const constrainedY = Math.max(0, Math.min(1 - 0.1, relativeY - 0.05))
+          
+          const newAnnotation: TextBoxAnnotation = {
+            id: `textbox-${Date.now()}`,
+            type: 'textbox',
+            pageNumber: targetPage,
+            x: constrainedX,
+            y: constrainedY,
+            width: 0.2, // Default width 20% of page
+            height: 0.1, // Default height 10% of page
+            rotation: 0,
+            text: 'Text',
+            fontSize: 16,
+            color: COMMON_COLORS[0],
+          }
+          
+          // Use setAnnotations directly to avoid dependency issues
+          setAnnotations((prev) => [...prev, newAnnotation])
+          setSelectedAnnotationId(newAnnotation.id)
+          // Switch back to select mode after creating text box
+          setAnnotationMode('select')
+        }
+      }
+    }, 100)
+  }, [onTextSelection, annotationMode, pageNumber, numPages, scale, setSelectedAnnotationId, setAnnotationMode, setAnnotations])
+
+  // Annotation handlers
+  const handleAnnotationCreate = useCallback((annotation: Annotation) => {
+    setAnnotations((prev) => [...prev, annotation])
+    setSelectedAnnotationId(annotation.id)
+  }, [])
+
+  const handleAnnotationUpdate = useCallback((annotation: Annotation) => {
+    setAnnotations((prev) => prev.map((ann) => (ann.id === annotation.id ? annotation : ann)))
+  }, [])
+
+  const handleAnnotationDelete = useCallback((id: string) => {
+    setAnnotations((prev) => prev.filter((ann) => ann.id !== id))
+    if (selectedAnnotationId === id) {
+      setSelectedAnnotationId(null)
+    }
+  }, [selectedAnnotationId])
+
+  const handleImageUpload = useCallback(
+    async (imageFile: File) => {
+      if (!file) return
+
+      // Get current page dimensions
+      const currentPageDims = pageDimensionsRef.current.get(pageNumber)
+      if (!currentPageDims) return
+
+      // Convert image to data URL
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const imageData = e.target?.result as string
+        const img = new Image()
+        img.onload = () => {
+          // Calculate default size (20% of page width, maintain aspect ratio)
+          const defaultWidth = 0.2
+          const aspectRatio = img.width / img.height
+          const defaultHeight = defaultWidth / aspectRatio
+
+          // Center on page
+          const x = 0.4
+          const y = 0.4
+
+          const newAnnotation: ImageAnnotation = {
+            id: `image-${Date.now()}`,
+            type: 'image',
+            pageNumber,
+            x,
+            y,
+            width: defaultWidth,
+            height: defaultHeight,
+            rotation: 0,
+            imageData,
+            imageWidth: img.width,
+            imageHeight: img.height,
+          }
+
+          handleAnnotationCreate(newAnnotation)
+          // Automatically switch back to select mode after creating image
+          setAnnotationMode('select')
+        }
+        img.src = imageData
+      }
+      reader.readAsDataURL(imageFile)
+    },
+    [file, pageNumber, handleAnnotationCreate, setAnnotationMode]
+  )
+
+  const handleDownload = useCallback(async () => {
+    if (!file || annotations.length === 0) {
+      alert('No annotations to save')
+      return
+    }
+
+    try {
+      const blob = await saveAnnotatedPDF(file, annotations, pageDimensionsRef.current)
+      const filename = file.name.replace('.pdf', '_annotated.pdf')
+      downloadPDF(blob, filename)
+    } catch (error) {
+      console.error('Error saving PDF:', error)
+      alert('Failed to save annotated PDF. Please check the console for details.')
+    }
+  }, [file, annotations])
+
+  // Handle drag and drop for images
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Only set drag over to false if we're leaving the pdf-content area
+    if (!pdfContentRef.current?.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false)
+    }
+  }, [])
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      const files = Array.from(e.dataTransfer.files)
+      const imageFiles = files.filter((file) => file.type.startsWith('image/'))
+
+      if (imageFiles.length === 0) return
+
+      // Get drop position relative to PDF content
+      const rect = pdfContentRef.current?.getBoundingClientRect()
+      if (!rect) return
+
+      // Find which page the drop occurred on
+      let targetPage = pageNumber
+      let relativeX = 0.5
+      let relativeY = 0.5
+
+      // Try to find the page that contains the drop point
+      for (let i = 1; i <= numPages; i++) {
+        const pageElement = pageRefs.current.get(i)
+        if (pageElement) {
+          const pageRect = pageElement.getBoundingClientRect()
+          const containerRect = pdfContentRef.current?.getBoundingClientRect()
+          if (containerRect) {
+            const pageRelativeX = e.clientX - pageRect.left
+            const pageRelativeY = e.clientY - pageRect.top
+
+            if (
+              pageRelativeX >= 0 &&
+              pageRelativeX <= pageRect.width &&
+              pageRelativeY >= 0 &&
+              pageRelativeY <= pageRect.height
+            ) {
+              targetPage = i
+              const pageDims = pageDimensionsRef.current.get(i)
+              if (pageDims) {
+                relativeX = pageRelativeX / (pageDims.width * scale)
+                relativeY = pageRelativeY / (pageDims.height * scale)
+              }
+              break
+            }
+          }
+        }
+      }
+
+      // Process each dropped image
+      for (const imageFile of imageFiles) {
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          const imageData = event.target?.result as string
+          const img = new Image()
+          img.onload = () => {
+            const pageDims = pageDimensionsRef.current.get(targetPage)
+            if (!pageDims) return
+
+            // Calculate default size (20% of page width, maintain aspect ratio)
+            const defaultWidth = 0.2
+            const aspectRatio = img.width / img.height
+            const defaultHeight = defaultWidth / aspectRatio
+
+            // Use drop position, but constrain to page bounds
+            const constrainedX = Math.max(0, Math.min(1 - defaultWidth, relativeX - defaultWidth / 2))
+            const constrainedY = Math.max(0, Math.min(1 - defaultHeight, relativeY - defaultHeight / 2))
+
+            const newAnnotation: ImageAnnotation = {
+              id: `image-${Date.now()}-${Math.random()}`,
+              type: 'image',
+              pageNumber: targetPage,
+              x: constrainedX,
+              y: constrainedY,
+              width: defaultWidth,
+              height: defaultHeight,
+              rotation: 0,
+              imageData,
+              imageWidth: img.width,
+              imageHeight: img.height,
+            }
+
+            handleAnnotationCreate(newAnnotation)
+          }
+          img.src = imageData
+        }
+        reader.readAsDataURL(imageFile)
+      }
+    },
+    [pageNumber, numPages, scale, handleAnnotationCreate]
+  )
 
   if (!file) {
     return (
@@ -475,9 +875,57 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
     )
   }
 
+  const selectedAnnotation = annotations.find((ann) => ann.id === selectedAnnotationId) || null
+
   return (
     <div className="pdf-viewer" ref={pdfViewerRef}>
-      <div className="pdf-controls-top">
+      <AnnotationToolbar
+        mode={annotationMode}
+        onModeChange={setAnnotationMode}
+        onImageUpload={handleImageUpload}
+        onDownload={handleDownload}
+      />
+      <div className="pdf-controls-top" ref={pdfControlsTopRef}>
+        {selectedAnnotation && selectedAnnotation.type === 'textbox' && (
+          <div className="textbox-controls">
+            <div className="textbox-control-group">
+              <label className="textbox-control-label">Font Size:</label>
+              <input
+                type="number"
+                min="8"
+                max="72"
+                value={(selectedAnnotation as TextBoxAnnotation).fontSize}
+                onChange={(e) => {
+                  const newSize = parseInt(e.target.value, 10)
+                  if (!isNaN(newSize) && newSize > 0) {
+                    handleAnnotationUpdate({
+                      ...selectedAnnotation,
+                      fontSize: Math.max(8, Math.min(72, newSize)),
+                    })
+                  }
+                }}
+                className="textbox-font-size-input"
+              />
+            </div>
+            <div className="textbox-control-group">
+              <label className="textbox-control-label">Color:</label>
+              <div className="textbox-color-picker">
+                {COMMON_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    className={`textbox-color-button ${(selectedAnnotation as TextBoxAnnotation).color === color ? 'active' : ''}`}
+                    style={{ backgroundColor: color }}
+                    onClick={() => handleAnnotationUpdate({
+                      ...selectedAnnotation,
+                      color,
+                    })}
+                    title={color}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="zoom-controls">
           <button onClick={handleFitWidth} className="control-button fit-button" title="Fit to width">
             ↔
@@ -513,14 +961,35 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
           <button onClick={handleZoomIn} className="control-button">
             +
           </button>
+          {onToggleKnowledgeNotes && (
+            <button 
+              onClick={onToggleKnowledgeNotes} 
+              className="control-button knowledge-notes-toggle"
+              title={showKnowledgeNotes ? 'Hide knowledge notes' : 'Show knowledge notes'}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
       <div
         ref={pdfContentRef}
-        className="pdf-content"
+        className={`pdf-content ${isDragOver ? 'drag-over' : ''}`}
         onMouseUp={handleTextSelection}
         onKeyUp={handleTextSelection}
         onClick={handleClick}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => {
+          setIsDragOver(false)
+          handleDrop(e)
+        }}
       >
         <Document
           file={fileUrl || file}
@@ -539,6 +1008,7 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
         >
           {Array.from(new Array(numPages), (_, index) => {
             const pageNum = index + 1
+            const pageDims = pageDimensionsRef.current.get(pageNum)
             return (
               <div
                 key={`page-wrapper-${pageNum}`}
@@ -550,6 +1020,7 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
                   }
                 }}
                 className="pdf-page-wrapper"
+                style={{ position: 'relative' }}
               >
                 <Page
                   key={`page_${pageNum}`}
@@ -559,12 +1030,40 @@ function PDFViewer({ file, onFileUpload, onTextSelection, layout = 'floating' }:
                   renderAnnotationLayer={true}
                   onLoadSuccess={(page) => onPageLoadSuccess({ pageNumber: pageNum, page })}
                 />
+                {pageDims && (
+                  <>
+                    <AnnotationLayer
+                      pageNumber={pageNum}
+                      pageWidth={pageDims.width}
+                      pageHeight={pageDims.height}
+                      scale={scale}
+                      annotations={annotations}
+                      selectedAnnotationId={selectedAnnotationId}
+                      onAnnotationUpdate={handleAnnotationUpdate}
+                      onAnnotationDelete={handleAnnotationDelete}
+                      onAnnotationSelect={setSelectedAnnotationId}
+                      mode={annotationMode}
+                    />
+                    {showKnowledgeNotes && (
+                      <KnowledgeNoteConnections
+                        pageNumber={pageNum}
+                        pageWidth={pageDims.width}
+                        pageHeight={pageDims.height}
+                        scale={scale}
+                        knowledgeNotes={knowledgeNotes}
+                        showKnowledgeNotes={showKnowledgeNotes}
+                        layout={layout}
+                        onNoteClick={onNoteClick}
+                      />
+                    )}
+                  </>
+                )}
               </div>
             )
           })}
         </Document>
       </div>
-      <div className="pdf-controls-bottom">
+      <div className="pdf-controls-bottom" ref={pdfControlsBottomRef}>
         <button
           onClick={goToPrevPage}
           disabled={pageNumber <= 1}

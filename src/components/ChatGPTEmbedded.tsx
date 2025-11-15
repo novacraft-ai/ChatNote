@@ -11,16 +11,50 @@ import 'katex/dist/katex.min.css'
 import './ChatGPTEmbedded.css'
 
 /**
+ * Clean up excessive newlines and normalize spacing in markdown content
+ */
+function cleanupMarkdownContent(content: string): string {
+  if (!content) return content
+  
+  // Step 1: Remove newlines that appear right after a bullet point (before content)
+  // Pattern: bullet point, optional space, newline(s), then text (not another bullet or blank line)
+  let cleaned = content.replace(/^([-*+])\s*\n+(?=\S)/gm, '$1 ')
+  
+  // Step 2: Normalize multiple consecutive newlines (3+ newlines -> 2 newlines for paragraph breaks)
+  // But preserve single newlines within paragraphs and double newlines for paragraph breaks
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n')
+  
+  // Step 3: Clean up newlines around list items - ensure single newline between list items
+  // Pattern: list item content, then 2+ newlines, then another list item
+  cleaned = cleaned.replace(/([-*+]\s+[^\n]+)\n{2,}([-*+])/g, '$1\n$2')
+  
+  // Step 4: Remove trailing whitespace from each line
+  cleaned = cleaned.replace(/[ \t]+$/gm, '')
+  
+  // Step 5: Normalize spacing around headings - ensure single newline before headings
+  cleaned = cleaned.replace(/\n{2,}(#{1,6}\s+)/g, '\n\n$1')
+  
+  // Step 6: Fix cases where bullet point is on its own line followed by content on next line
+  // Pattern: bullet point on line, newline, then content
+  cleaned = cleaned.replace(/^([-*+])\s*\n+([^\n-*+\s])/gm, '$1 $2')
+  
+  return cleaned
+}
+
+/**
  * Preprocess markdown content to convert LaTeX wrapped in square brackets to proper math delimiters
  * Detects patterns like [\hat{y}...] and converts them to \[...\] for block math
  */
 function preprocessMathContent(content: string): string {
+  // First clean up excessive newlines
+  let cleaned = cleanupMarkdownContent(content)
+  
   // Pattern to match LaTeX expressions wrapped in square brackets
   // This handles cases where LaTeX is wrapped in [ ] instead of proper math delimiters
   // Matches: [ followed by optional whitespace/newlines, content with LaTeX commands, optional whitespace/newlines, ]
   const latexInBracketsPattern = /\[\s*\n*\s*((?:[^[\]]*\\[a-zA-Z@]+[^[\]]*)+)\s*\n*\s*\]/g
   
-  return content.replace(latexInBracketsPattern, (match, latexContent) => {
+  return cleaned.replace(latexInBracketsPattern, (match, latexContent) => {
     // Check if it contains LaTeX commands (backslash followed by letters)
     // Common LaTeX commands: \hat, \pm, \text, \begin, \end, \frac, \sqrt, etc.
     const hasLatexCommands = /\\[a-zA-Z@]+/.test(latexContent)
@@ -30,13 +64,13 @@ function preprocessMathContent(content: string): string {
       // - Trim leading/trailing whitespace
       // - Replace multiple consecutive newlines with single newline
       // - Preserve single newlines for multi-line LaTeX (like \begin{aligned}...\end{aligned})
-      const cleaned = latexContent
+      const cleanedLatex = latexContent
         .trim()
         .replace(/\n\s*\n+/g, '\n')  // Multiple newlines -> single newline
         .replace(/^\s+|\s+$/gm, '')  // Trim each line
       
       // Convert to block math format \[...\]
-      return `\\[${cleaned}\\]`
+      return `\\[${cleanedLatex}\\]`
     }
     
     // If no LaTeX commands detected, return original (might be a regular link or reference)
@@ -46,14 +80,18 @@ function preprocessMathContent(content: string): string {
 
 interface ChatGPTEmbeddedProps {
   selectedText: string
+  pdfText: string
+  isExtractingText: boolean
   onToggleLayout: () => void
   layout: 'floating' | 'split'
+  currentPageNumber?: number
+  onCreateKnowledgeNote?: (content: string, linkedText: string | undefined, pageNumber: number | undefined, messageId: string) => void
 }
 
-function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbeddedProps) {
+function ChatGPTEmbedded({ selectedText, pdfText, isExtractingText, onToggleLayout, layout, currentPageNumber, onCreateKnowledgeNote }: ChatGPTEmbeddedProps) {
   const { theme } = useTheme()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
-  const [messages, setMessages] = useState<Array<ChatMessage & { id: string }>>([])
+  const [messages, setMessages] = useState<Array<ChatMessage & { id: string; selectedTextAtSend?: string }>>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -61,6 +99,8 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
   const [isCollapsed, setIsCollapsed] = useState(true)
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_OPENROUTER_MODEL)
   const [showModelSelector, setShowModelSelector] = useState(false)
+  const [usePdfContext, setUsePdfContext] = useState<boolean>(true) // Default to enabled when PDF is available
+  const [responseMode, setResponseMode] = useState<'quick' | 'thinking'>('quick') // Response mode: quick or thinking
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -121,6 +161,13 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
       setIsCollapsed(false)
     }
   }, [layout])
+
+  // Auto-enable PDF context when PDF text becomes available
+  useEffect(() => {
+    if (pdfText && pdfText.trim().length > 0) {
+      setUsePdfContext(true)
+    }
+  }, [pdfText])
 
   useEffect(() => {
     if (!showModelSelector) {
@@ -221,10 +268,21 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
       userMessageContent = `${userInput}\n\nContext from PDF: ${selectedText}`
     }
 
-    const userMessage: ChatMessage & { id: string } = {
+    // Determine context to send: prioritize selected text, then PDF text if enabled
+    let contextToSend: string | undefined
+    if (selectedText && !userInput) {
+      contextToSend = selectedText
+    } else if (usePdfContext && pdfText && pdfText.trim().length > 0) {
+      contextToSend = pdfText
+    } else if (selectedText && userInput) {
+      contextToSend = selectedText
+    }
+
+    const userMessage: ChatMessage & { id: string; selectedTextAtSend?: string } = {
       id: Date.now().toString(),
       role: 'user',
       content: userMessageContent,
+      selectedTextAtSend: selectedText || undefined, // Store the selected text at the time of sending
     }
 
     setMessages((prev) => [...prev, userMessage])
@@ -237,10 +295,13 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
     setError(null)
 
     const assistantMessageId = (Date.now() + 1).toString()
-    const assistantMessage: ChatMessage & { id: string } = {
+    // Find the selected text from the user message that triggered this response
+    const userMessageSelectedText = userMessage.selectedTextAtSend
+    const assistantMessage: ChatMessage & { id: string; selectedTextAtSend?: string } = {
       id: assistantMessageId,
       role: 'assistant',
       content: '',
+      selectedTextAtSend: userMessageSelectedText, // Inherit the selected text from the user's message
     }
     setMessages((prev) => [...prev, assistantMessage])
 
@@ -254,10 +315,22 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
 
       let fullResponse = ''
 
-      await sendChatMessage(
-        [...conversationHistory, userMessage],
-        selectedText && !userInput ? selectedText : undefined,
+      // Add mode-specific instructions to the user message
+      let finalUserMessage = { ...userMessage }
+      if (responseMode === 'quick') {
+        finalUserMessage.content = `${userMessageContent}\n\n[IMPORTANT: Please provide a concise and direct response. Be brief and to the point, avoiding unnecessary elaboration.]`
+      } else if (responseMode === 'thinking') {
+        finalUserMessage.content = `${userMessageContent}\n\n[IMPORTANT: Please think step by step. Show your reasoning process, break down the problem, and explain your thought process before providing the final answer.]`
+      }
+
+      const messagePromise = sendChatMessage(
+        [...conversationHistory, finalUserMessage],
+        contextToSend,
         (chunk: string) => {
+          // Check if aborted before processing chunk
+          if (abortControllerRef.current?.signal.aborted) {
+            return
+          }
           fullResponse += chunk
           setMessages((prev) =>
             prev.map((msg) =>
@@ -268,15 +341,45 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
           )
           scrollToBottom()
         },
-        selectedModel
+        selectedModel,
+        abortControllerRef.current?.signal
       )
+
+      // Handle the promise to prevent unhandled rejections
+      messagePromise.catch((error) => {
+        // Silently handle abort errors - they're expected when user pauses
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          // Keep the partial response, just stop loading
+          return
+        }
+        // Re-throw other errors to be handled by the outer catch
+        throw error
+      })
+
+      await messagePromise
     } catch (error) {
+      // Don't show error if it was aborted by user
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        // Keep the partial response, just stop loading
+      } else {
       console.error('Error sending message:', error)
       setError(error instanceof Error ? error.message : 'Failed to send message')
       setMessages((prev) => prev.filter((msg) => msg.id !== assistantMessageId))
+      }
     } finally {
       setIsLoading(false)
       abortControllerRef.current = null
+      inputRef.current?.focus()
+    }
+  }
+
+  const handlePause = () => {
+    if (abortControllerRef.current) {
+      // Abort the request - this will cause the promise to reject with AbortError
+      // The error is already handled in the catch block of handleSend
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+      setIsLoading(false)
       inputRef.current?.focus()
     }
   }
@@ -391,6 +494,21 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
               ))}
             </div>
           )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setResponseMode(prev => prev === 'quick' ? 'thinking' : 'quick')
+            }}
+            className="response-mode-button"
+            title={responseMode === 'quick' ? 'Switch to thinking mode' : 'Switch to quick mode'}
+            disabled={apiKeyMissing}
+          >
+            <span className="response-mode-text">
+              {responseMode === 'quick' ? '⚡ Quick' : '🧠 Thinking'}
+            </span>
+          </button>
         </div>
         <div className="header-actions">
         {messages.length > 0 && (
@@ -492,28 +610,88 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
             </div>
           )}
 
-        {messages.map((message) => (
+        {messages.map((message, index) => {
+          // Check if this is the last assistant message
+          const isLastAssistantMessage = message.role === 'assistant' && 
+            index === messages.length - 1
+          
+          return (
           <div
             key={message.id}
             className={`message ${message.role === 'user' ? 'message-user' : 'message-assistant'}`}
           >
             <div className="message-avatar">
               {message.role === 'user' ? (
-                <div className="avatar-user">U</div>
+                <div className="avatar-user">
+                  {user?.picture ? (
+                    <img 
+                      src={user.picture} 
+                      alt={user.name || user.email}
+                      crossOrigin="anonymous"
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        // If image fails to load, show fallback
+                        const target = e.target as HTMLImageElement
+                        target.style.display = 'none'
+                        const parent = target.parentElement
+                        if (parent) {
+                          // Remove any existing span
+                          const existingSpan = parent.querySelector('span.avatar-fallback')
+                          if (existingSpan) {
+                            existingSpan.remove()
+                          }
+                          // Add fallback
+                          const fallback = document.createElement('span')
+                          fallback.className = 'avatar-fallback'
+                          fallback.textContent = user.name?.[0]?.toUpperCase() || user.email[0].toUpperCase()
+                          parent.appendChild(fallback)
+                        }
+                      }}
+                    />
+                  ) : (
+                    <span className="avatar-fallback">
+                      {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
+                    </span>
+                  )}
+                </div>
               ) : (
                 <div className="avatar-assistant">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z"
-                      fill="currentColor"
-                    />
-                  </svg>
+                  <img 
+                    src="/chatnote-icon.svg" 
+                    alt="ChatNote"
+                    className="assistant-avatar-img"
+                    onError={(e) => {
+                      // If image fails to load, show fallback SVG
+                      const target = e.target as HTMLImageElement
+                      target.style.display = 'none'
+                      const parent = target.parentElement
+                      if (parent) {
+                        // Remove any existing fallback
+                        const existingFallback = parent.querySelector('svg.avatar-fallback-svg')
+                        if (existingFallback) {
+                          existingFallback.remove()
+                        }
+                        // Add fallback SVG
+                        const fallback = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+                        fallback.setAttribute('width', '32')
+                        fallback.setAttribute('height', '32')
+                        fallback.setAttribute('viewBox', '0 0 24 24')
+                        fallback.setAttribute('fill', 'none')
+                        fallback.setAttribute('class', 'avatar-fallback-svg')
+                        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+                        path.setAttribute('d', 'M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z')
+                        path.setAttribute('fill', 'currentColor')
+                        fallback.appendChild(path)
+                        parent.appendChild(fallback)
+                      }
+                    }}
+                  />
                 </div>
               )}
             </div>
             <div className="message-content-wrapper">
               <div className="message-content">
-                {message.role === 'assistant' && isLoading && !message.content ? (
+                {message.role === 'assistant' && isLoading && !message.content && isLastAssistantMessage ? (
                   <div className="typing-indicator">
                     <span></span>
                     <span></span>
@@ -557,9 +735,57 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
                   <div className="markdown-content">{message.content}</div>
                 )}
               </div>
+              {message.role === 'assistant' && message.content && (
+                <div className="message-actions">
+                  <button
+                    className="message-action-button copy-button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(message.content)
+                        // You could add a toast notification here
+                      } catch (err) {
+                        console.error('Failed to copy:', err)
+                      }
+                    }}
+                    title="Copy to clipboard"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                    Copy
+                  </button>
+                  <button
+                    className="message-action-button knowledge-note-button"
+                    onClick={() => {
+                      if (onCreateKnowledgeNote) {
+                        // Use the selected text that was stored when the message was sent,
+                        // not the current selectedText prop which might have changed
+                        const linkedText = message.selectedTextAtSend || selectedText || undefined
+                        onCreateKnowledgeNote(
+                          message.content,
+                          linkedText,
+                          currentPageNumber,
+                          message.id
+                        )
+                      }
+                    }}
+                    title="Create knowledge note"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                      <polyline points="10 9 9 9 8 9" />
+                    </svg>
+                    Save Note
+                  </button>
             </div>
+              )}
           </div>
-        ))}
+          </div>
+        )})}
 
         {error && (
           <div className="error-message">
@@ -664,6 +890,21 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
                       ))}
                     </div>
                   )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setResponseMode(prev => prev === 'quick' ? 'thinking' : 'quick')
+                    }}
+                    className="response-mode-button"
+                    title={responseMode === 'quick' ? 'Switch to thinking mode' : 'Switch to quick mode'}
+                    disabled={apiKeyMissing || !isAuthenticated}
+                  >
+                    <span className="response-mode-text">
+                      {responseMode === 'quick' ? '⚡ Quick' : '🧠 Thinking'}
+                    </span>
+                  </button>
                 </div>
                 {messages.length > 0 && (
                   <button onClick={handleClearChat} className="clear-button" title="Clear chat">
@@ -694,13 +935,42 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
                   </svg>
                 </button>
               </div>
-              {/* Split layout: Disclaimer below model selector */}
-              <div className={`footer-text-outer split-footer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
-                <span className="footer-text">
-                  AI responses may contain errors. Please verify important information.
-                </span>
-              </div>
             </>
+          )}
+
+          {/* PDF Context Toggle - positioned just above input */}
+          {pdfText && pdfText.trim().length > 0 && (
+            <div className={`pdf-context-toggle-container ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
+              <button
+                type="button"
+                onClick={() => setUsePdfContext(!usePdfContext)}
+                className={`pdf-context-toggle ${usePdfContext ? 'active' : ''}`}
+                title={usePdfContext ? 'PDF context is enabled. Click to disable.' : 'PDF context is disabled. Click to enable.'}
+              >
+                <svg 
+                  width="16" 
+                  height="16" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polyline points="10 9 9 9 8 9" />
+                </svg>
+                <span className="pdf-context-toggle-text">
+                  {usePdfContext ? 'Using PDF context' : 'PDF context off'}
+                </span>
+                {isExtractingText && (
+                  <span className="pdf-context-extracting">Extracting...</span>
+                )}
+              </button>
+              </div>
           )}
 
           <div className="chatgpt-input-container">
@@ -715,9 +985,21 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
                 className="chatgpt-input"
                 disabled={isLoading || apiKeyMissing || !isAuthenticated}
               />
+              {isLoading ? (
+                <button
+                  onClick={handlePause}
+                  className="send-button pause-button"
+                  title="Pause/Stop response"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" />
+                    <rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" />
+                  </svg>
+                </button>
+              ) : (
               <button
                 onClick={handleSend}
-                disabled={(!input.trim() && !selectedText) || isLoading || apiKeyMissing || !isAuthenticated}
+                  disabled={(!input.trim() && !selectedText) || apiKeyMissing || !isAuthenticated}
                 className="send-button"
                 title="Send message"
               >
@@ -731,9 +1013,18 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
                   />
                 </svg>
               </button>
+              )}
             </div>
           </div>
+
+          {/* Disclaimer - positioned below input bar */}
+          {layout === 'split' && (
+            <div className={`footer-text-outer split-footer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
+              <span className="footer-text">
+                AI responses may contain errors. Please verify important information.
+              </span>
           </div>
+          )}
           
           {layout === 'floating' && (
             <div className={`footer-text-outer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
@@ -742,6 +1033,7 @@ function ChatGPTEmbedded({ selectedText, onToggleLayout, layout }: ChatGPTEmbedd
               </span>
             </div>
           )}
+          </div>
         </div>
   )
 }
