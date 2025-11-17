@@ -97,6 +97,11 @@ export default function LoginButton() {
   }, [login])
 
   useEffect(() => {
+    // Don't initialize if user is already logged in
+    if (user) {
+      return
+    }
+
     // Check if GOOGLE_CLIENT_ID is configured
     if (!GOOGLE_CLIENT_ID) {
       console.warn('GOOGLE_CLIENT_ID is not configured. Please set VITE_GOOGLE_CLIENT_ID environment variable.')
@@ -113,25 +118,8 @@ export default function LoginButton() {
           callback: handleCredentialResponse
         })
         setGoogleLoaded(true)
-        // Pre-initialize the prompt system so first click works immediately
-        // Call prompt() once silently to "warm up" the system
-        // The callback handles the notification but doesn't show any UI
-        setTimeout(() => {
-          try {
-            if (window.google?.accounts?.id) {
-              window.google.accounts.id.prompt((notification: any) => {
-                // Silent pre-initialization - handle notification but don't show anything
-                // This "warms up" the prompt system so user's first click works immediately
-                if (notification) {
-                  // Just acknowledge the notification, don't create any UI
-                  // The system is now ready for the user's click
-                }
-              })
-            }
-          } catch (e) {
-            // Ignore errors during pre-initialization
-          }
-        }, 300)
+        // Don't auto-prompt if user is already logged in
+        // The prompt will be shown when user clicks the login button
       } catch (error) {
         console.error('Failed to initialize Google OAuth:', error)
         setScriptError('Failed to initialize Google OAuth')
@@ -155,25 +143,8 @@ export default function LoginButton() {
             use_fedcm_for_prompt: true
           })
         setGoogleLoaded(true)
-        // Pre-initialize the prompt system so first click works immediately
-        // Call prompt() once silently to "warm up" the system
-        // The callback handles the notification but doesn't show any UI
-        setTimeout(() => {
-          try {
-            if (window.google?.accounts?.id) {
-              window.google.accounts.id.prompt((notification: any) => {
-                // Silent pre-initialization - handle notification but don't show anything
-                // This "warms up" the prompt system so user's first click works immediately
-                if (notification) {
-                  // Just acknowledge the notification, don't create any UI
-                  // The system is now ready for the user's click
-                }
-              })
-            }
-          } catch (e) {
-            // Ignore errors during pre-initialization
-          }
-        }, 300)
+          // Don't auto-prompt if user is already logged in
+          // The prompt will be shown when user clicks the login button
         } catch (error) {
           console.error('Failed to initialize Google OAuth:', error)
           setScriptError('Failed to initialize Google OAuth')
@@ -205,7 +176,7 @@ export default function LoginButton() {
       clearTimeout(timeout)
       // Don't remove script on cleanup as it might be used elsewhere
     }
-  }, [handleCredentialResponse])
+  }, [handleCredentialResponse, user])
 
   // Remove fallback button and backdrop when user logs in
   useEffect(() => {
@@ -217,97 +188,7 @@ export default function LoginButton() {
     }
   }, [user])
 
-  const handleLogin = () => {
-    if (!GOOGLE_CLIENT_ID) {
-      alert('Google OAuth is not configured. Please set VITE_GOOGLE_CLIENT_ID environment variable.')
-      return
-    }
-    
-    if (scriptError) {
-      alert(`Google Sign-In error: ${scriptError}. Please check the browser console.`)
-      return
-    }
-    
-    if (window.google && googleLoaded) {
-      try {
-        // Suppress console errors for non-critical issues
-        const originalConsoleError = console.error
-        const originalConsoleWarn = console.warn
-        
-        // Temporarily suppress FedCM abort errors and 403 errors (they're non-critical)
-        console.error = (...args: any[]) => {
-          const message = args.join(' ')
-          if (
-            message.includes('AbortError') ||
-            message.includes('signal is aborted') ||
-            message.includes('FedCM get() rejects') ||
-            message.includes('The request has been aborted') ||
-            message.includes('403') ||
-            message.includes('credential_button_library') ||
-            message.includes('The given origin is not allowed') ||
-            message.includes('GSI_LOGGER') ||
-            (typeof args[0] === 'string' && args[0].includes('403'))
-          ) {
-            // Suppress these non-critical errors
-            return
-          }
-          originalConsoleError.apply(console, args)
-        }
-        
-        console.warn = (...args: any[]) => {
-          const message = args.join(' ')
-          if (
-            message.includes('Cross-Origin-Opener-Policy') ||
-            message.includes('window.postMessage') ||
-            message.includes('GSI_LOGGER')
-          ) {
-            // Suppress these non-critical warnings
-            return
-          }
-          originalConsoleWarn.apply(console, args)
-        }
-        
-        // Also suppress network errors for Google button iframe
-        const originalErrorHandler = window.onerror
-        window.onerror = (message, source, lineno, colno, error) => {
-          if (
-            typeof message === 'string' && (
-              message.includes('403') ||
-              message.includes('credential_button_library') ||
-              message.includes('accounts.google.com') ||
-              source?.includes('accounts.google.com')
-            )
-          ) {
-            return true // Suppress
-          }
-          if (originalErrorHandler) {
-            return originalErrorHandler(message, source, lineno, colno, error)
-          }
-          return false
-        }
-        
-        // Restore console after a delay
-        setTimeout(() => {
-          console.error = originalConsoleError
-          console.warn = originalConsoleWarn
-          window.onerror = originalErrorHandler
-        }, 5000)
-        
-        // Use One Tap prompt with FedCM-compatible handlers
-        window.google.accounts.id.prompt((notification: any) => {
-          // FedCM-compatible: Check for getNotDisplayedReason() instead of isNotDisplayed()
-          const notDisplayedReason = notification.getNotDisplayedReason?.()
-          const skippedReason = notification.getSkippedReason?.()
-          const dismissedReason = notification.getDismissedReason?.()
-          
-          // Legacy support: also check old methods for backward compatibility
-          const isNotDisplayed = notification.isNotDisplayed?.()
-          const isSkipped = notification.isSkippedMoment?.()
-          const isDismissed = notification.isDismissedMoment?.()
-          
-          // If prompt is not displayed, skipped, or dismissed, show fallback button
-          if (notDisplayedReason || skippedReason || dismissedReason || 
-              isNotDisplayed || isSkipped || isDismissed) {
+  const showFallbackButton = () => {
             // Remove any existing login popup
             const existingBackdrop = document.getElementById('google-login-backdrop')
             const existingButton = document.getElementById('google-signin-button')
@@ -332,13 +213,11 @@ export default function LoginButton() {
             const closeLogin = () => {
               backdrop.remove()
               button.remove()
-              // Remove escape key listener
               document.removeEventListener('keydown', escapeHandler)
             }
             
             // Click backdrop to close
             backdrop.addEventListener('click', (e) => {
-              // Only close if clicking the backdrop itself, not the button
               if (e.target === backdrop) {
                 closeLogin()
               }
@@ -378,7 +257,6 @@ export default function LoginButton() {
                 width: 250
               })
             } catch (renderError) {
-              // If button rendering fails (e.g., origin not allowed), show manual login
               console.warn('Could not render Google button, showing manual login option:', renderError)
               button.innerHTML = `
                 <p style="margin: 0 0 10px 0; text-align: center;">Sign in with Google</p>
@@ -391,7 +269,6 @@ export default function LoginButton() {
                   Cancel
                 </button>
               `
-              // Also remove escape handler when cancel is clicked
               const cancelBtn = button.querySelector('button:last-child')
               if (cancelBtn) {
                 cancelBtn.addEventListener('click', () => {
@@ -400,16 +277,50 @@ export default function LoginButton() {
               }
             }
           }
+
+  const handleLogin = () => {
+    if (!GOOGLE_CLIENT_ID) {
+      alert('Google OAuth is not configured. Please set VITE_GOOGLE_CLIENT_ID environment variable.')
+      return
+    }
+    
+    if (scriptError) {
+      alert(`Google Sign-In error: ${scriptError}. Please check the browser console.`)
+      return
+    }
+    
+    if (window.google && googleLoaded) {
+      try {
+        // Try to show the One Tap prompt first
+        window.google.accounts.id.prompt((notification: any) => {
+          // Check if prompt was not displayed, skipped, or dismissed
+          const notDisplayedReason = notification.getNotDisplayedReason?.()
+          const skippedReason = notification.getSkippedReason?.()
+          const dismissedReason = notification.getDismissedReason?.()
+          const isNotDisplayed = notification.isNotDisplayed?.()
+          const isSkipped = notification.isSkippedMoment?.()
+          const isDismissed = notification.isDismissedMoment?.()
+          
+          // If prompt didn't show, immediately show fallback button
+          if (notDisplayedReason || skippedReason || dismissedReason || 
+              isNotDisplayed || isSkipped || isDismissed) {
+            showFallbackButton()
+          }
         })
+        
+        // Also show fallback button immediately as a backup
+        // This ensures the user can always sign in on first click
+        // The prompt might work, but if it doesn't, the button is already there
+        setTimeout(() => {
+          // Only show fallback if prompt didn't work (check if backdrop doesn't exist)
+          if (!document.getElementById('google-login-backdrop')) {
+            showFallbackButton()
+          }
+        }, 500)
       } catch (error) {
         console.error('Error showing Google sign-in:', error)
-        // Fallback: directly trigger the credential flow
-        try {
-          window.google!.accounts.id.prompt()
-        } catch (fallbackError) {
-          console.error('Fallback prompt also failed:', fallbackError)
-          alert('Failed to show Google Sign-In. Please try refreshing the page.')
-        }
+        // If prompt fails, show fallback button immediately
+        showFallbackButton()
       }
     } else {
       alert('Google Sign-In is still loading. Please wait a moment and try again.')
@@ -461,7 +372,15 @@ export default function LoginButton() {
           <span className="user-name">{user.name || user.email}</span>
           {user.role === 'admin' && <span className="user-role">Admin</span>}
         </div>
-        <button onClick={logout} className="logout-button" title="Logout">
+        <button 
+          onClick={() => {
+            if (window.confirm('Are you sure you want to log out?')) {
+              logout()
+            }
+          }} 
+          className="logout-button" 
+          title="Logout"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
             <polyline points="16 17 21 12 16 7" />

@@ -13,10 +13,14 @@ export default defineConfig({
   },
   build: {
     sourcemap: false,
-    chunkSizeWarningLimit: 1000,
+    chunkSizeWarningLimit: 2000, // Increased to accommodate large PDF libraries (react-pdf, pdfjs-dist)
     rollupOptions: {
       onwarn(warning, warn) {
-        // Use default warning handler
+        // Suppress eval warnings from onnxruntime-web (trusted dependency)
+        if (warning.code === 'EVAL' && warning.id?.includes('onnxruntime-web')) {
+          return
+        }
+        // Use default warning handler for other warnings
         warn(warning)
       },
       output: {

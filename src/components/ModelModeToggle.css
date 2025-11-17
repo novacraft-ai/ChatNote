@@ -1,0 +1,130 @@
+.model-mode-toggle-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-mode-toggle {
+  position: relative;
+  width: 80px;
+  height: 24px;
+  background: rgba(200, 200, 200, 0.4);
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  padding: 2px;
+  transition: background-color 0.3s ease;
+}
+
+.theme-light .model-mode-toggle {
+  background: rgba(200, 200, 200, 0.5);
+}
+
+.theme-dark .model-mode-toggle {
+  background: rgba(120, 120, 120, 0.4);
+}
+
+.model-mode-toggle.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.model-mode-toggle.dragging {
+  cursor: grabbing;
+}
+
+.model-mode-toggle-track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.model-mode-toggle-button {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 20px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.theme-light .model-mode-toggle-button {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.theme-dark .model-mode-toggle-button {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Mode-specific colors */
+.model-mode-toggle.auto {
+  background: #3b82f6;
+}
+
+.theme-light .model-mode-toggle.auto {
+  background: #3b82f6;
+}
+
+.theme-dark .model-mode-toggle.auto {
+  background: #3b82f6;
+}
+
+.model-mode-toggle.auto .model-mode-toggle-button {
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.model-mode-toggle.reasoning {
+  background: #8b5cf6;
+}
+
+.theme-light .model-mode-toggle.reasoning {
+  background: #8b5cf6;
+}
+
+.theme-dark .model-mode-toggle.reasoning {
+  background: #8b5cf6;
+}
+
+.model-mode-toggle.reasoning .model-mode-toggle-button {
+  border-color: rgba(139, 92, 246, 0.2);
+}
+
+.model-mode-toggle.advanced {
+  background: #10a37f;
+}
+
+.theme-light .model-mode-toggle.advanced {
+  background: #10a37f;
+}
+
+.theme-dark .model-mode-toggle.advanced {
+  background: #10a37f;
+}
+
+.model-mode-toggle.advanced .model-mode-toggle-button {
+  border-color: rgba(16, 163, 127, 0.2);
+}
+
+.model-mode-toggle-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-color, #333333);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.theme-light .model-mode-toggle-label {
+  color: #333333;
+}
+
+.theme-dark .model-mode-toggle-label {
+  color: #ffffff;
+}

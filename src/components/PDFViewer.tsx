@@ -22,6 +22,188 @@ interface PDFViewerProps {
   onScrollToPage?: (pageNumber: number) => void
   onNoteClick?: (note: KnowledgeNote) => void
   pdfContentRef?: React.RefObject<HTMLDivElement> // Pass ref for scroll sync
+  onAddAnnotation?: (annotation: TextBoxAnnotation) => void // Callback to add annotation programmatically
+}
+
+// Font size input wrapper component that allows empty input
+const FontSizeInputWrapper: React.FC<{
+  selectedAnnotation: TextBoxAnnotation
+  onUpdate: (annotation: TextBoxAnnotation) => void
+}> = ({ selectedAnnotation, onUpdate }) => {
+  const [inputValue, setInputValue] = useState<string>(selectedAnnotation.fontSize.toString())
+  // Store the original font size to restore on blur if input is empty
+  const originalFontSizeRef = useRef<number>(selectedAnnotation.fontSize)
+  
+  // Update input value and original font size when annotation changes (e.g., when switching annotations)
+  useEffect(() => {
+    originalFontSizeRef.current = selectedAnnotation.fontSize
+    setInputValue(selectedAnnotation.fontSize.toString())
+  }, [selectedAnnotation.id, selectedAnnotation.fontSize])
+  
+  return (
+    <div 
+      className="textbox-controls"
+      onClick={(e) => {
+        // Prevent clicks on controls from triggering text editing mode
+        // But allow native input behavior (like spinner arrows)
+        const target = e.target as HTMLElement
+        if (!target.closest('input[type="number"]')) {
+          e.stopPropagation()
+        }
+      }}
+      onMouseDown={(e) => {
+        // Prevent mousedown on controls from triggering text editing mode
+        // But allow native input behavior (like spinner arrows)
+        const target = e.target as HTMLElement
+        if (!target.closest('input[type="number"]')) {
+          e.stopPropagation()
+        }
+      }}
+    >
+      <div className="textbox-control-group">
+        <label className="textbox-control-label">Font Size:</label>
+        <div className="font-size-input-wrapper">
+          <button
+            type="button"
+            className="font-size-arrow-button font-size-arrow-left"
+            onClick={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+              const currentSize = parseInt(inputValue, 10) || originalFontSizeRef.current
+              const newSize = Math.max(1, currentSize - 1)
+              setInputValue(newSize.toString())
+              const updatedAnnotation = {
+                ...selectedAnnotation,
+                fontSize: newSize,
+              } as TextBoxAnnotation
+              onUpdate(updatedAnnotation)
+              originalFontSizeRef.current = newSize
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+            }}
+            title="Decrease font size"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+          <input
+            type="number"
+            min="1"
+            max="200"
+            value={inputValue}
+            onChange={(e) => {
+              const inputValue = e.target.value
+              setInputValue(inputValue) // Allow empty input
+              
+              // Only update annotation when there's a valid value
+              if (inputValue === '' || inputValue === '-') {
+                return // Don't update, just allow the input to be empty or negative sign
+              }
+              
+              const newSize = parseInt(inputValue, 10)
+              if (!isNaN(newSize) && newSize > 0) {
+                const clampedSize = Math.max(1, Math.min(200, newSize))
+                // Update the annotation with new font size
+                const updatedAnnotation = {
+                  ...selectedAnnotation,
+                  fontSize: clampedSize,
+                } as TextBoxAnnotation
+                onUpdate(updatedAnnotation)
+                originalFontSizeRef.current = clampedSize
+              }
+            }}
+            onBlur={(e) => {
+              const currentValue = e.target.value.trim()
+              // Restore original value if input is empty or invalid on blur
+              if (currentValue === '' || currentValue === '-' || isNaN(parseInt(currentValue, 10)) || parseInt(currentValue, 10) <= 0) {
+                // Restore to the original font size (not the current annotation value, which might have been changed)
+                setInputValue(originalFontSizeRef.current.toString())
+              } else {
+                // Ensure the displayed value matches the annotation value (in case of clamping)
+                const parsedValue = parseInt(currentValue, 10)
+                const clampedSize = Math.max(1, Math.min(200, parsedValue))
+                if (clampedSize !== parsedValue) {
+                  setInputValue(clampedSize.toString())
+                }
+                originalFontSizeRef.current = clampedSize
+              }
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation()
+            }}
+            onClick={(e) => {
+              e.stopPropagation()
+            }}
+            onFocus={(e) => {
+              e.stopPropagation()
+            }}
+            onWheel={(e) => {
+              // Prevent scrolling from changing the value when focused
+              e.stopPropagation()
+            }}
+            className="textbox-font-size-input"
+          />
+          <button
+            type="button"
+            className="font-size-arrow-button font-size-arrow-right"
+            onClick={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+              const currentSize = parseInt(inputValue, 10) || originalFontSizeRef.current
+              const newSize = Math.min(200, currentSize + 1)
+              setInputValue(newSize.toString())
+              const updatedAnnotation = {
+                ...selectedAnnotation,
+                fontSize: newSize,
+              } as TextBoxAnnotation
+              onUpdate(updatedAnnotation)
+              originalFontSizeRef.current = newSize
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation()
+              e.preventDefault()
+            }}
+            title="Increase font size"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div className="textbox-control-group">
+        <label className="textbox-control-label">Color:</label>
+        <div className="textbox-color-picker">
+          {COMMON_COLORS.map((color) => (
+            <button
+              key={color}
+              className={`textbox-color-button ${selectedAnnotation.color === color ? 'active' : ''}`}
+              style={{ backgroundColor: color }}
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                onUpdate({
+                  ...selectedAnnotation,
+                  color,
+                })
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+              }}
+              onFocus={(e) => {
+                e.stopPropagation()
+              }}
+              title={color}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function PDFViewer({ 
@@ -35,6 +217,7 @@ function PDFViewer({
   knowledgeNotes = [],
   onScrollToPage,
   onNoteClick,
+  onAddAnnotation,
 }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number>(0)
   const [pageNumber, setPageNumber] = useState<number>(1)
@@ -53,8 +236,46 @@ function PDFViewer({
   // Annotation state
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
-  const [annotationMode, setAnnotationMode] = useState<'textbox' | 'image' | 'select' | null>('select')
+  const [annotationMode, setAnnotationMode] = useState<'textbox' | 'image' | 'select' | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
+
+  // Suppress harmless TextLayer cancellation warnings (happens during zoom/scale changes)
+  useEffect(() => {
+    const originalWarn = console.warn
+    const originalError = console.error
+    
+    // Suppress warnings
+    console.warn = (...args: any[]) => {
+      // Filter out TextLayer task cancelled warnings - they're harmless
+      const message = args.join(' ')
+      if (
+        message.includes('TextLayer task cancelled') ||
+        message.includes('AbortException') ||
+        args.some(arg => typeof arg === 'string' && (arg.includes('TextLayer task cancelled') || arg.includes('AbortException')))
+      ) {
+        return
+      }
+      originalWarn.apply(console, args)
+    }
+    
+    // Suppress errors (these warnings sometimes come through console.error)
+    console.error = (...args: any[]) => {
+      const message = args.join(' ')
+      // Filter out TextLayer task cancelled errors - they're harmless
+      if (
+        message.includes('TextLayer task cancelled') ||
+        (message.includes('AbortException') && message.includes('TextLayer'))
+      ) {
+        return
+      }
+      originalError.apply(console, args)
+    }
+    
+    return () => {
+      console.warn = originalWarn
+      console.error = originalError
+    }
+  }, [])
 
   const fileUrl = useMemo(() => {
     if (!file) return null
@@ -74,6 +295,7 @@ function PDFViewer({
       // Use CDN in development, local file in production
       const isDev = import.meta.env.DEV
       let workerSrc: string
+      const standardFontDataUrl = 'https://unpkg.com/pdfjs-dist@5.4.394/standard_fonts/'
       
       if (isDev) {
         // In development, use CDN to avoid Vite module processing issues
@@ -85,16 +307,21 @@ function PDFViewer({
         workerSrc = `${normalizedBasePath}pdf.worker.min.js`
       }
       
-      // Ensure worker is set on pdfjs before Document tries to use it
+      // Ensure worker and standardFontDataUrl are set on pdfjs before Document tries to use it
       if (pdfjs.GlobalWorkerOptions) {
         pdfjs.GlobalWorkerOptions.workerSrc = workerSrc
+        // Set standardFontDataUrl on GlobalWorkerOptions for the worker thread
+        // TypeScript doesn't recognize this property, but it's needed by PDF.js worker
+        ;(pdfjs.GlobalWorkerOptions as any).standardFontDataUrl = standardFontDataUrl
       }
       
       return {
         workerSrc,
         cMapUrl: 'https://unpkg.com/pdfjs-dist@5.4.394/cmaps/',
         cMapPacked: true,
-        standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@5.4.394/standard_fonts/',
+        standardFontDataUrl,
+        // Set verbosity to suppress warnings (0 = errors only, 1 = warnings, 2 = infos)
+        verbosity: 0,
       }
     },
     []
@@ -128,16 +355,30 @@ function PDFViewer({
       const page = pageData.page
       let baseWidth: number
       let baseHeight: number
+      let source: string
       
       // Try to get viewport dimensions (base size at scale 1.0)
       if (page.viewport) {
         baseWidth = page.viewport.width
         baseHeight = page.viewport.height
+        source = 'viewport'
       } else {
         // Fallback: divide current dimensions by scale to get base dimensions
         baseWidth = page.width / scale
         baseHeight = page.height / scale
+        source = 'page.width/scale fallback'
       }
+      
+      console.log(`[Page Dimensions] Page ${pageData.pageNumber}:`, {
+        source,
+        baseWidth,
+        baseHeight,
+        currentScale: scale,
+        pageWidth: page.width,
+        pageHeight: page.height,
+        viewportWidth: page.viewport?.width,
+        viewportHeight: page.viewport?.height,
+      })
       
       pageDimensionsRef.current.set(pageData.pageNumber, {
         width: baseWidth,
@@ -147,9 +388,21 @@ function PDFViewer({
       console.warn('Error getting page dimensions:', error)
       // Fallback: use current dimensions divided by scale
       const page = pageData.page
+      const baseWidth = page.width / scale
+      const baseHeight = page.height / scale
+      
+      console.log(`[Page Dimensions] Page ${pageData.pageNumber} (fallback):`, {
+        source: 'error fallback',
+        baseWidth,
+        baseHeight,
+        currentScale: scale,
+        pageWidth: page.width,
+        pageHeight: page.height,
+      })
+      
       pageDimensionsRef.current.set(pageData.pageNumber, {
-        width: page.width / scale,
-        height: page.height / scale,
+        width: baseWidth,
+        height: baseHeight,
       })
     }
   }
@@ -570,8 +823,23 @@ function PDFViewer({
   // Handle clicks to clear selection when clicking outside selected text
   // Also handles text box creation when in textbox mode
   const handleClick = useCallback((e: React.MouseEvent) => {
-    // Check if click was on an annotation (annotation layer or its children)
+    // Check if click was on controls - if so, don't process this click
     const target = e.target as HTMLElement
+    const isControlClick = 
+      target.closest('.textbox-controls') !== null ||
+      target.closest('.textbox-font-size-input') !== null ||
+      target.closest('.textbox-color-button') !== null ||
+      target.closest('.textbox-color-picker') !== null ||
+      target.classList.contains('textbox-controls') ||
+      target.classList.contains('textbox-font-size-input') ||
+      target.classList.contains('textbox-color-button') ||
+      target.classList.contains('textbox-color-picker')
+    
+    if (isControlClick) {
+      return // Don't process clicks on controls
+    }
+    
+    // Check if click was on an annotation (annotation layer or its children)
     const isAnnotationClick = 
       target.closest('.annotation') !== null ||
       target.closest('.annotation-layer') !== null ||
@@ -593,8 +861,9 @@ function PDFViewer({
         onTextSelection('')
       }
       
-      // Only deselect annotation if clicking outside annotations and not selecting text
-      if (annotationMode === 'select' && !isAnnotationClick && !hasTextSelection) {
+      // Deselect annotation if clicking outside annotations and not selecting text
+      // This works for all modes (select, textbox, image) to allow deselection after moving/resizing
+      if (!isAnnotationClick && !hasTextSelection) {
         setSelectedAnnotationId(null)
       }
       
@@ -628,8 +897,40 @@ function PDFViewer({
                 targetPage = i
                 const pageDims = pageDimensionsRef.current.get(i)
                 if (pageDims) {
-                  relativeX = pageRelativeX / (pageDims.width * scale)
-                  relativeY = pageRelativeY / (pageDims.height * scale)
+                  // Calculate the actual rendered scale from the page rect dimensions
+                  // This is more accurate than using the scale state variable
+                  const actualScaleX = pageRect.width / pageDims.width
+                  const actualScaleY = pageRect.height / pageDims.height
+                  
+                  // Use the actual rendered scale to calculate relative coordinates
+                  // This ensures relative coordinates are always based on the actual rendered size
+                  // NOT the scale state variable, which might not match the actual rendered size
+                  relativeX = pageRelativeX / (pageDims.width * actualScaleX)
+                  relativeY = pageRelativeY / (pageDims.height * actualScaleY)
+                  
+                  console.log(`[Text Box Creation] Page ${targetPage}:`, {
+                    pageRelativeX,
+                    pageRelativeY,
+                    pageRectWidth: pageRect.width,
+                    pageRectHeight: pageRect.height,
+                    baseWidth: pageDims.width,
+                    baseHeight: pageDims.height,
+                    stateScale: scale,
+                    actualScaleX,
+                    actualScaleY,
+                    relativeX,
+                    relativeY,
+                    // Verify calculation
+                    calculatedRelativeX: pageRelativeX / (pageDims.width * actualScaleX),
+                    calculatedRelativeY: pageRelativeY / (pageDims.height * actualScaleY),
+                    // What will be saved
+                    predictedSavedPdfX: relativeX * pageDims.width,
+                    predictedSavedPdfY: relativeY * pageDims.height,
+                    // What it should be (in base coordinates)
+                    expectedPdfX: pageRelativeX / actualScaleX,
+                    expectedPdfY: pageRelativeY / actualScaleY,
+                    matches: Math.abs((relativeX * pageDims.width) - (pageRelativeX / actualScaleX)) < 0.1,
+                  })
                 }
                 break
               }
@@ -674,9 +975,89 @@ function PDFViewer({
     setSelectedAnnotationId(annotation.id)
   }, [])
 
-  const handleAnnotationUpdate = useCallback((annotation: Annotation) => {
-    setAnnotations((prev) => prev.map((ann) => (ann.id === annotation.id ? annotation : ann)))
+  // Expose function to add annotation programmatically
+  useEffect(() => {
+    if (onAddAnnotation) {
+      // Store the callback in a ref so it can be called from outside
+      ;(window as any).__addPDFAnnotation = (annotation: TextBoxAnnotation) => {
+        setAnnotations((prev) => [...prev, annotation])
+        setSelectedAnnotationId(annotation.id)
+        // Scroll to the page if needed
+        if (annotation.pageNumber && onScrollToPage) {
+          onScrollToPage(annotation.pageNumber)
+        }
+      }
+    }
+    return () => {
+      delete (window as any).__addPDFAnnotation
+    }
+  }, [onAddAnnotation, onScrollToPage])
+
+  // Helper function to calculate text box height
+  const calculateTextBoxHeight = useCallback((textAnnotation: TextBoxAnnotation, pageDims: { width: number; height: number }, currentScale: number): number => {
+    const pixelWidth = textAnnotation.width * pageDims.width * currentScale
+    const tempDiv = document.createElement('div')
+    tempDiv.style.position = 'absolute'
+    tempDiv.style.visibility = 'hidden'
+    tempDiv.style.width = `${pixelWidth}px`
+    tempDiv.style.fontSize = `${textAnnotation.fontSize * currentScale}px`
+    tempDiv.style.fontFamily = 'inherit'
+    tempDiv.style.whiteSpace = 'pre-wrap'
+    tempDiv.style.wordWrap = 'break-word'
+    tempDiv.style.overflowWrap = 'break-word'
+    tempDiv.style.padding = `${4 * currentScale}px`
+    tempDiv.style.boxSizing = 'border-box'
+    tempDiv.style.lineHeight = '1.2'
+    tempDiv.textContent = textAnnotation.text || 'Text'
+    document.body.appendChild(tempDiv)
+    const requiredHeight = tempDiv.scrollHeight
+    document.body.removeChild(tempDiv)
+    
+    const requiredRelativeHeight = requiredHeight / (pageDims.height * currentScale)
+    return Math.max(0.01, Math.min(1, requiredRelativeHeight))
   }, [])
+
+  const handleAnnotationUpdate = useCallback((annotation: Annotation) => {
+    setAnnotations((prev) => {
+      // First, update the annotation
+      const updated = prev.map((ann) => (ann.id === annotation.id ? annotation : ann))
+      
+      // If updating a text box, recalculate height based on current content and font size
+      if (annotation.type === 'textbox') {
+        const textAnnotation = annotation as TextBoxAnnotation
+        // Find the page dimensions for this annotation
+        const pageDims = pageDimensionsRef.current.get(textAnnotation.pageNumber)
+        if (pageDims) {
+          const finalHeight = calculateTextBoxHeight(textAnnotation, pageDims, scale)
+          
+          // Update the annotation with new height, preserving all other properties
+          return updated.map((ann) => 
+            ann.id === annotation.id 
+              ? { ...textAnnotation, height: finalHeight }
+              : ann
+          )
+        }
+      }
+      return updated
+    })
+  }, [scale, calculateTextBoxHeight])
+
+  // Recalculate text box heights when zoom changes
+  useEffect(() => {
+    setAnnotations((prev) => {
+      return prev.map((ann) => {
+        if (ann.type === 'textbox') {
+          const textAnnotation = ann as TextBoxAnnotation
+          const pageDims = pageDimensionsRef.current.get(textAnnotation.pageNumber)
+          if (pageDims) {
+            const finalHeight = calculateTextBoxHeight(textAnnotation, pageDims, scale)
+            return { ...textAnnotation, height: finalHeight }
+          }
+        }
+        return ann
+      })
+    })
+  }, [scale, calculateTextBoxHeight])
 
   const handleAnnotationDelete = useCallback((id: string) => {
     setAnnotations((prev) => prev.filter((ann) => ann.id !== id))
@@ -884,47 +1265,17 @@ function PDFViewer({
         onModeChange={setAnnotationMode}
         onImageUpload={handleImageUpload}
         onDownload={handleDownload}
+        onClearAll={() => {
+          setAnnotations([])
+          setSelectedAnnotationId(null)
+        }}
       />
       <div className="pdf-controls-top" ref={pdfControlsTopRef}>
         {selectedAnnotation && selectedAnnotation.type === 'textbox' && (
-          <div className="textbox-controls">
-            <div className="textbox-control-group">
-              <label className="textbox-control-label">Font Size:</label>
-              <input
-                type="number"
-                min="8"
-                max="72"
-                value={(selectedAnnotation as TextBoxAnnotation).fontSize}
-                onChange={(e) => {
-                  const newSize = parseInt(e.target.value, 10)
-                  if (!isNaN(newSize) && newSize > 0) {
-                    handleAnnotationUpdate({
-                      ...selectedAnnotation,
-                      fontSize: Math.max(8, Math.min(72, newSize)),
-                    })
-                  }
-                }}
-                className="textbox-font-size-input"
-              />
-            </div>
-            <div className="textbox-control-group">
-              <label className="textbox-control-label">Color:</label>
-              <div className="textbox-color-picker">
-                {COMMON_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    className={`textbox-color-button ${(selectedAnnotation as TextBoxAnnotation).color === color ? 'active' : ''}`}
-                    style={{ backgroundColor: color }}
-                    onClick={() => handleAnnotationUpdate({
-                      ...selectedAnnotation,
-                      color,
-                    })}
-                    title={color}
+          <FontSizeInputWrapper
+            selectedAnnotation={selectedAnnotation as TextBoxAnnotation}
+            onUpdate={handleAnnotationUpdate}
                   />
-                ))}
-              </div>
-            </div>
-          </div>
         )}
         <div className="zoom-controls">
           <button onClick={handleFitWidth} className="control-button fit-button" title="Fit to width">

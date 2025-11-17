@@ -98,7 +98,7 @@ export default function ApiKeySettings() {
   return (
     <div className="api-key-settings">
       <div className="api-key-header">
-        <h3>OpenRouter API Key</h3>
+        <h3>Groq API Key</h3>
         {hasApiKey && (
           <span className="api-key-status-badge">Configured</span>
         )}
@@ -107,7 +107,7 @@ export default function ApiKeySettings() {
       <p className="api-key-description">
         {hasApiKey
           ? 'Your API key is securely stored and encrypted. You can update it below.'
-          : 'Enter your OpenRouter API key to use the chat feature. Your key will be encrypted and stored securely.'}
+          : 'Enter your Groq API key to use the chat feature. Your key will be encrypted and stored securely.'}
       </p>
 
       <div className="api-key-input-group">
@@ -115,7 +115,7 @@ export default function ApiKeySettings() {
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-or-v1-..."
+          placeholder="gsk_..."
           className="api-key-input"
           disabled={saving}
         />
@@ -139,7 +139,7 @@ export default function ApiKeySettings() {
           <strong>Don't have an API key?</strong>
         </p>
         <ol>
-          <li>Go to <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a></li>
+          <li>Go to <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq Console</a></li>
           <li>Sign up or log in</li>
           <li>Create a new API key</li>
           <li>Copy and paste it here</li>

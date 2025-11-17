@@ -1,12 +1,14 @@
 import { useState, lazy, Suspense, useEffect } from 'react'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
 import { AuthProvider } from './contexts/AuthContext'
+import { ChatVisibilityProvider, useChatVisibility } from './contexts/ChatVisibilityContext'
 import NavBar from './components/NavBar'
 import ChatGPTEmbedded from './components/ChatGPTEmbedded'
 import ErrorBoundary from './components/ErrorBoundary'
 import KnowledgeNotesPanel from './components/KnowledgeNotesPanel'
 import { extractTextFromPDF } from './utils/pdfTextExtractor'
 import { KnowledgeNote } from './types/knowledgeNotes'
+import { COMMON_COLORS, TextBoxAnnotation } from './types/annotations'
 import './App.css'
 
 const PDFViewer = lazy(() => import('./components/PDFViewer'))
@@ -15,11 +17,11 @@ type ChatLayout = 'floating' | 'split'
 
 function AppContent() {
   const { theme } = useTheme()
+  const { isChatVisible } = useChatVisibility()
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [pdfText, setPdfText] = useState<string>('')
   const [selectedText, setSelectedText] = useState<string>('')
   const [chatLayout, setChatLayout] = useState<ChatLayout>('floating')
-  const [isExtractingText, setIsExtractingText] = useState<boolean>(false)
   const [currentPageNumber, setCurrentPageNumber] = useState<number>(1)
   const [knowledgeNotes, setKnowledgeNotes] = useState<KnowledgeNote[]>([])
   const [showKnowledgeNotes, setShowKnowledgeNotes] = useState<boolean>(false) // Default to collapsed
@@ -27,22 +29,41 @@ function AppContent() {
 
   const handlePdfUpload = async (file: File) => {
     setPdfFile(file)
-    setIsExtractingText(true)
     try {
+      // Step 1: Extract text from PDF
       const extractedText = await extractTextFromPDF(file)
       setPdfText(extractedText)
+      
+      // Step 2: Index PDF with embeddings (happens once on upload)
+      // This creates embeddings for all chunks so we can do semantic search later
+      if (extractedText && extractedText.trim().length > 0) {
+        try {
+          const { indexPDF } = await import('./utils/pdfRAG')
+          
+          // Index PDF with progress callback (optional - for UI feedback)
+          // Uses TF-IDF (no API keys required)
+          await indexPDF(extractedText)
+        } catch (error) {
+          console.warn('[RAG] Failed to index PDF, will use keyword search:', error)
+          // Continue - keyword search will work as fallback
+        }
+      }
     } catch (error) {
       console.error('Failed to extract PDF text:', error)
       setPdfText('')
-    } finally {
-      setIsExtractingText(false)
     }
   }
 
-  // Clear PDF text when PDF is removed
+  // Clear PDF text and RAG index when PDF is removed
   useEffect(() => {
     if (!pdfFile) {
       setPdfText('')
+      // Clear RAG indices when PDF is removed
+      import('./utils/pdfRAG').then(({ clearPDFIndices }) => {
+        clearPDFIndices()
+      }).catch(() => {
+        // Ignore if module not loaded
+      })
     }
   }, [pdfFile])
 
@@ -72,6 +93,8 @@ function AppContent() {
       // Store in a ref or state that persists across conversation rounds
       // We'll use this when creating knowledge notes
       setLastSelectedTextPosition({ text, pageNumber, textYPosition })
+      // Also store in window for easy access from chat component
+      ;(window as any).__lastSelectedTextPosition = { text, pageNumber, textYPosition }
     }
   }
 
@@ -138,6 +161,8 @@ function AppContent() {
                   handleScrollToPage(note.pageNumber)
                 }
               }}
+            pdfContentRef={(window as any).__pdfContentRef ? { current: (window as any).__pdfContentRef } : undefined}
+            onAddAnnotation={() => {}} // Enable annotation adding via global function
                 />
               </Suspense>
             </ErrorBoundary>
@@ -159,17 +184,48 @@ function AppContent() {
             pdfContentRef={(window as any).__pdfContentRef ? { current: (window as any).__pdfContentRef } : undefined}
           />
         )}
+        {isChatVisible && (
         <div className={`chat-container ${chatLayout === 'floating' ? 'floating-chat' : 'split-chat'} ${showKnowledgeNotes ? 'knowledge-notes-open' : ''}`}>
           <ChatGPTEmbedded 
             selectedText={selectedText} 
             pdfText={pdfText}
-            isExtractingText={isExtractingText}
             onToggleLayout={toggleChatLayout} 
             layout={chatLayout}
             currentPageNumber={currentPageNumber}
             onCreateKnowledgeNote={handleCreateKnowledgeNote}
+            onClearSelectedText={() => setSelectedText('')}
+            onOpenKnowledgeNotes={() => {
+              if (!showKnowledgeNotes) {
+                setShowKnowledgeNotes(true)
+              }
+            }}
+            onAddAnnotationToPDF={(text: string, pageNumber: number, textYPosition?: number) => {
+              // Create text box annotation and add it to PDF
+              if ((window as any).__addPDFAnnotation) {
+                // Calculate position: use textYPosition if available, otherwise center of page
+                const x = 0.4 // Center horizontally (40% from left, leaving room for text box)
+                const y = textYPosition !== undefined ? textYPosition : 0.5 // Use selected text position or center
+                
+                const annotation: TextBoxAnnotation = {
+                  id: `textbox-${Date.now()}`,
+                  type: 'textbox',
+                  pageNumber,
+                  x: Math.max(0, Math.min(1 - 0.3, x - 0.15)), // Constrain to page bounds
+                  y: Math.max(0, Math.min(1 - 0.2, y - 0.1)), // Constrain to page bounds
+                  width: 0.3, // 30% of page width
+                  height: 0.2, // 20% of page height (will auto-expand if needed)
+                  rotation: 0,
+                  text: text,
+                  fontSize: 14,
+                  color: COMMON_COLORS[0], // Black
+                }
+                
+                ;(window as any).__addPDFAnnotation(annotation)
+              }
+            }}
           />
             </div>
+        )}
           </div>
         </div>
   )
@@ -179,7 +235,9 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
+        <ChatVisibilityProvider>
         <AppContent />
+        </ChatVisibilityProvider>
       </AuthProvider>
     </ThemeProvider>
   )

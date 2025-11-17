@@ -72,6 +72,31 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     []
   )
 
+  // Calculate required height for text box content
+  const calculateTextHeight = useCallback(
+    (text: string, fontSize: number, width: number, currentScale: number): number => {
+      // Create a temporary element to measure text height
+      const tempDiv = document.createElement('div')
+      tempDiv.style.position = 'absolute'
+      tempDiv.style.visibility = 'hidden'
+      tempDiv.style.width = `${width}px`
+      tempDiv.style.fontSize = `${fontSize * currentScale}px` // Scale font size
+      tempDiv.style.fontFamily = 'inherit'
+      tempDiv.style.whiteSpace = 'pre-wrap'
+      tempDiv.style.wordWrap = 'break-word'
+      tempDiv.style.overflowWrap = 'break-word'
+      tempDiv.style.padding = `${4 * currentScale}px` // Scale padding too
+      tempDiv.style.boxSizing = 'border-box'
+      tempDiv.style.lineHeight = '1.2'
+      tempDiv.textContent = text || 'Text'
+      document.body.appendChild(tempDiv)
+      const height = tempDiv.scrollHeight
+      document.body.removeChild(tempDiv)
+      return height
+    },
+    []
+  )
+
   // Note: Text box creation and deselection are now handled by PDFViewer
   // since the annotation layer has pointer-events: none to allow text selection
 
@@ -204,7 +229,29 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         }
 
         const constrained = constrainToPage(newX, newY, newWidth, newHeight)
+        
+        // For text boxes, auto-adjust height based on content when width changes
+        if (selectedAnnotation.type === 'textbox') {
+          const textAnnotation = selectedAnnotation as TextBoxAnnotation
+          const newPixelWidth = toPixelWidth(constrained.width)
+          const requiredHeight = calculateTextHeight(
+            textAnnotation.text,
+            textAnnotation.fontSize,
+            newPixelWidth,
+            scale
+          )
+          const requiredRelativeHeight = requiredHeight / (pageHeight * scale)
+          // Only update height if it's different (to avoid infinite loops)
+          if (Math.abs(requiredRelativeHeight - constrained.height) > 0.001) {
+            const finalHeight = Math.max(0.01, Math.min(1, requiredRelativeHeight))
+            const finalConstrained = constrainToPage(newX, newY, constrained.width, finalHeight)
+            onAnnotationUpdate({ ...selectedAnnotation, ...finalConstrained })
+          } else {
+            onAnnotationUpdate({ ...selectedAnnotation, ...constrained })
+          }
+        } else {
         onAnnotationUpdate({ ...selectedAnnotation, ...constrained })
+        }
       } else if (isDragging) {
         const newX = toRelativeX(e.clientX - rect.left - dragStart.x)
         const newY = toRelativeY(e.clientY - rect.top - dragStart.y)
@@ -214,6 +261,32 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     }
 
     const handleMouseUp = () => {
+      // After resizing a text box, recalculate height based on content
+      if (isResizing && selectedAnnotationId) {
+        const selectedAnnotation = pageAnnotations.find((ann) => ann.id === selectedAnnotationId)
+        if (selectedAnnotation && selectedAnnotation.type === 'textbox') {
+          const textAnnotation = selectedAnnotation as TextBoxAnnotation
+          const pixelWidth = toPixelWidth(textAnnotation.width)
+          const requiredHeight = calculateTextHeight(
+            textAnnotation.text,
+            textAnnotation.fontSize,
+            pixelWidth,
+            scale
+          )
+          const requiredRelativeHeight = requiredHeight / (pageHeight * scale)
+          const constrained = constrainToPage(
+            textAnnotation.x,
+            textAnnotation.y,
+            textAnnotation.width,
+            requiredRelativeHeight
+          )
+          // Only update if height needs to change
+          if (Math.abs(constrained.height - textAnnotation.height) > 0.001) {
+            onAnnotationUpdate({ ...textAnnotation, ...constrained })
+          }
+        }
+      }
+      
       setIsDragging(false)
       setIsResizing(false)
       setIsRotating(false)
@@ -228,7 +301,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isDragging, isResizing, isRotating, resizeHandle, resizeStart, dragStart, rotateStart, selectedAnnotationId, pageAnnotations, toPixelX, toPixelY, toPixelWidth, toPixelHeight, toRelativeX, toRelativeY, constrainToPage, onAnnotationUpdate, pageWidth, pageHeight, scale])
+  }, [isDragging, isResizing, isRotating, resizeHandle, resizeStart, dragStart, rotateStart, selectedAnnotationId, pageAnnotations, toPixelX, toPixelY, toPixelWidth, toPixelHeight, toRelativeX, toRelativeY, constrainToPage, calculateTextHeight, onAnnotationUpdate, pageWidth, pageHeight, scale])
 
   // Handle keyboard delete
   useEffect(() => {
@@ -260,8 +333,9 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         style={{
           left: `${pixelX}px`,
           top: `${pixelY}px`,
-          maxWidth: `${pixelWidth}px`, // Use max-width instead of width
-          maxHeight: `${pixelHeight}px`, // Use max-height instead of height
+          width: `${pixelWidth}px`, // Use width to ensure proper scaling
+          height: `${pixelHeight}px`, // Use height to ensure proper scaling
+          padding: `${4 * scale}px`, // Scale padding with zoom
           transform: `rotate(${annotation.rotation}deg)`,
           transformOrigin: 'center center',
         }}
@@ -297,19 +371,41 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             onChange={(e) => {
               onAnnotationUpdate({ ...annotation, text: e.target.value })
             }}
-            onBlur={() => setEditingText(null)}
+            onBlur={(e) => {
+              // Don't exit editing mode if focus is moving to the font size input
+              const relatedTarget = e.relatedTarget as HTMLElement
+              if (relatedTarget && (
+                relatedTarget.closest('.textbox-controls') !== null ||
+                relatedTarget.closest('.textbox-font-size-input') !== null ||
+                relatedTarget.classList.contains('textbox-font-size-input')
+              )) {
+                // Focus is moving to controls, don't exit editing mode
+                return
+              }
+              setEditingText(null)
+              // Deselect annotation when editing is finished
+              onAnnotationSelect(null)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
                 setEditingText(null)
+                // Deselect annotation when editing is finished
+                onAnnotationSelect(null)
               }
               if (e.key === 'Escape') {
                 setEditingText(null)
+                // Deselect annotation when editing is cancelled
+                onAnnotationSelect(null)
               }
             }}
             style={{
-              fontSize: `${annotation.fontSize}px`,
+              fontSize: `${annotation.fontSize * scale}px`, /* Scale font size with PDF zoom */
               color: annotation.color,
+              width: `${pixelWidth}px`, /* Use the annotation's width */
+              maxWidth: `${pixelWidth}px`, /* Prevent exceeding container */
+              height: `${pixelHeight}px`, /* Use the annotation's height */
+              maxHeight: `${pixelHeight}px`, /* Prevent exceeding container */
             }}
             autoFocus
           />
@@ -318,10 +414,19 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             className="textbox-content"
             onClick={(e) => {
               e.stopPropagation()
+              // Only enter editing mode if not clicking on controls
+              // Check if the click target is within the textbox-controls
+              const target = e.target as HTMLElement
+              const isControlClick = target.closest('.textbox-controls') !== null ||
+                                     target.closest('.textbox-font-size-input') !== null ||
+                                     target.closest('.textbox-color-button') !== null ||
+                                     target.closest('.textbox-color-picker') !== null
+              if (!isControlClick) {
               setEditingText(annotation.id)
+              }
             }}
             style={{
-              fontSize: `${annotation.fontSize}px`,
+              fontSize: `${annotation.fontSize * scale}px`, /* Scale font size with PDF zoom */
               color: annotation.color,
             }}
           >
@@ -342,8 +447,11 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     
     // Calculate actual rendered image size with object-fit: contain
     // The image maintains its aspect ratio and fits within the container
+    // Use base dimensions (without scale) for aspect ratio calculation to ensure consistent scaling
+    const baseContainerWidth = annotation.width * pageWidth
+    const baseContainerHeight = annotation.height * pageHeight
     const imageAspectRatio = annotation.imageWidth / annotation.imageHeight
-    const containerAspectRatio = containerWidth / containerHeight
+    const containerAspectRatio = baseContainerWidth / baseContainerHeight
     
     let actualImageWidth: number
     let actualImageHeight: number
@@ -365,8 +473,8 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         style={{
           left: `${pixelX}px`,
           top: `${pixelY}px`,
-          width: `${actualImageWidth}px`, // Use actual rendered image width
-          height: `${actualImageHeight}px`, // Use actual rendered image height
+          width: `${actualImageWidth}px`, // Use actual rendered image width (scaled)
+          height: `${actualImageHeight}px`, // Use actual rendered image height (scaled)
           transform: `rotate(${annotation.rotation}deg)`,
           transformOrigin: 'center center',
         }}

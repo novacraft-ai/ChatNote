@@ -40,7 +40,8 @@
 }
 
 .theme-toggle,
-.settings-toggle {
+.settings-toggle,
+.chat-toggle {
   width: 40px;
   height: 40px;
   display: flex;
@@ -56,20 +57,23 @@
 }
 
 .theme-toggle:hover,
-.settings-toggle:hover {
+.settings-toggle:hover,
+.chat-toggle:hover {
   background-color: #f5f5f5;
   border-color: #d0d0d0;
   transform: scale(1.05);
 }
 
 [data-theme='dark'] .theme-toggle,
-[data-theme='dark'] .settings-toggle {
+[data-theme='dark'] .settings-toggle,
+[data-theme='dark'] .chat-toggle {
   border-color: #444;
   color: #ececf1;
 }
 
 [data-theme='dark'] .theme-toggle:hover,
-[data-theme='dark'] .settings-toggle:hover {
+[data-theme='dark'] .settings-toggle:hover,
+[data-theme='dark'] .chat-toggle:hover {
   background-color: #2a2a2a;
   border-color: #555;
 }

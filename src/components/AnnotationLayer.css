@@ -32,10 +32,9 @@
   display: inline-flex; /* Use inline-flex so container shrinks to content */
   align-items: center;
   justify-content: center;
-  padding: 4px;
-  width: fit-content !important; /* Fit to content size, override inline style */
-  height: fit-content !important; /* Fit to content size, override inline style */
   box-sizing: border-box;
+  /* width and height are set via inline styles to scale with PDF zoom */
+  /* padding is also set via inline styles to scale with PDF zoom */
 }
 
 .textbox-content {
@@ -52,8 +51,8 @@
 .textbox-input {
   min-width: 50px;
   min-height: 30px;
-  width: fit-content; /* Fit to content */
-  height: auto;
+  width: 100%; /* Use full width of container */
+  max-width: 100%; /* Respect container's max-width */
   border: none;
   outline: none;
   background: transparent;
@@ -64,6 +63,8 @@
   overflow-wrap: break-word;
   user-select: text;
   white-space: pre-wrap; /* Preserve whitespace and wrap */
+  box-sizing: border-box; /* Include padding in width calculation */
+  overflow-y: auto; /* Allow scrolling if content exceeds height */
 }
 
 .image-annotation {

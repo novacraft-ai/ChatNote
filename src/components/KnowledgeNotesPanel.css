@@ -60,10 +60,23 @@
     z-index: 10010 !important; /* Ensure it's on top of everything except navbar */
   }
 
-  /* Split layout: Make it collapsible/narrower on medium screens */
+  /* Split layout: Convert to fixed drawer overlay on narrow screens */
   .knowledge-notes-panel.split-layout {
-    width: min(300px, 30vw);
-    min-width: 250px;
+    position: fixed;
+    top: 60px; /* Below navbar */
+    right: -370px; /* Hidden off-screen by default */
+    width: min(350px, 85vw); /* Responsive width, max 350px */
+    height: calc(100vh - 60px);
+    z-index: 10010; /* Well above backdrop (1000), chat (1000), and other elements */
+    transition: right 0.3s ease;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+    flex-shrink: 0;
+  }
+
+  /* Show drawer when visible in split layout */
+  .knowledge-notes-panel.split-layout.knowledge-notes-visible {
+    right: 0;
+    z-index: 10010 !important; /* Ensure it's on top of everything except navbar */
   }
 }
 
@@ -79,9 +92,14 @@
     right: 0;
   }
 
-  /* Split layout: Hide knowledge notes on very narrow screens to prioritize PDF and chat */
+  /* Split layout: Use drawer overlay on very narrow screens (same as medium screens) */
   .knowledge-notes-panel.split-layout {
-    display: none;
+    width: min(320px, 90vw);
+    right: -100vw; /* Completely off-screen */
+  }
+
+  .knowledge-notes-panel.split-layout.knowledge-notes-visible {
+    right: 0;
   }
 
   /* Remove padding when knowledge notes are hidden on mobile */
@@ -136,31 +154,29 @@
   color: #ffffff !important; /* Even lighter on hover in dark theme */
 }
 
-/* Show close button on mobile */
-@media (max-width: 1024px) {
-  .knowledge-notes-close {
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    transition: background 0.2s, color 0.2s;
-    color: #1a1a1a !important; /* Light theme color - use !important to override inline styles */
-  }
+/* Close button - always visible when panel is open */
+.knowledge-notes-close {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  transition: background 0.2s, color 0.2s;
+  color: #1a1a1a !important; /* Light theme color - use !important to override inline styles */
+}
 
-  .theme-dark .knowledge-notes-close {
-    color: #ececf1 !important; /* Light color for dark theme - use !important */
-  }
+.theme-dark .knowledge-notes-close {
+  color: #ececf1 !important; /* Light color for dark theme - use !important */
+}
 
-  .knowledge-notes-close:hover {
-    background: rgba(0, 0, 0, 0.1);
-  }
+.knowledge-notes-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
 
-  .theme-dark .knowledge-notes-close:hover {
-    background: rgba(255, 255, 255, 0.15);
-    color: #ffffff !important; /* Even lighter on hover in dark theme */
-  }
+.theme-dark .knowledge-notes-close:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff !important; /* Even lighter on hover in dark theme */
 }
 
 .theme-dark .knowledge-notes-header {
@@ -467,6 +483,16 @@
   transition: all 0.2s;
 }
 
+/* Stacked notes styling (like Apple Wallet cards) */
+.knowledge-note-item.note-stacked {
+  border-radius: 10px;
+  will-change: transform;
+}
+
+.knowledge-note-item.note-stacked:not(.note-front) {
+  opacity: 0.95;
+}
+
 /* Front note styling - more prominent when brought to front */
 .knowledge-notes-list.following-mode .knowledge-note-item.note-front {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
@@ -490,9 +516,11 @@
   backdrop-filter: blur(25px) saturate(180%);
   -webkit-backdrop-filter: blur(25px) saturate(180%);
   border-color: rgba(0, 0, 0, 0.15);
-  transform: translateY(-2px);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
+
+/* Hover effect for stacked notes - preserve rotation but lift slightly */
+/* Note: The inline transform with rotation is preserved, hover just adds translateY */
 
 .theme-dark .knowledge-note-item:hover {
   background: rgba(255, 255, 255, 0.08);

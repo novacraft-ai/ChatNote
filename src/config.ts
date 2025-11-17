@@ -1,44 +1,63 @@
 /**
  * API Configuration
- * This app uses API-based AI models via OpenRouter and OpenAI
+ * This app uses API-based AI models via Groq and OpenAI
  */
 
-// OpenRouter API configuration for ChatGPT integration
-// Get your API key from https://openrouter.ai/keys
+// Groq API configuration for ChatGPT integration
+// Get your API key from https://console.groq.com/keys
 // ⚠️ SECURITY WARNING: Do NOT put your API key directly here if deploying publicly!
 // See SECURITY_WARNING.md for details and use backend proxy instead.
 
-// Available OpenRouter models for selection (OpenRouter format: provider/model:tag)
-export const OPENROUTER_MODELS = [
-  { id: 'openai/gpt-oss-120b', name: 'GPT OSS', provider: 'OpenAI' },
-  { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1', provider: 'DeepSeek' },
-  { id: 'deepseek/deepseek-chat-v3.1:free', name: 'DeepSeek V3.1', provider: 'DeepSeek' },
-  { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3', provider: 'Meta' },
-  { id: 'qwen/qwen3-235b-a22b:free', name: 'Qwen 3', provider: 'Qwen' },
+// Model groups for different modes
+// Auto mode: Vision-capable models with fallback
+export const AUTO_MODELS = [
+  'meta-llama/llama-4-scout-17b-16e-instruct',
+  'meta-llama/llama-4-maverick-17b-128e-instruct',
+  'llama-3.3-70b-versatile'
 ] as const
 
-// Note: If these model IDs don't work, check OpenRouter's model list at https://openrouter.ai/models
-// and update the IDs accordingly. The format is typically: provider/model-name:tag
+// Reasoning mode: Models that support native reasoning format
+export const REASONING_MODELS = [
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'qwen/qwen3-32b'
+] as const
 
-// Default OpenRouter model (first in the list)
-export const DEFAULT_OPENROUTER_MODEL = OPENROUTER_MODELS[0].id
+// GPT-OSS models use include_reasoning parameter (not reasoning_format)
+export const GPT_OSS_MODELS = [
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b'
+] as const
 
-// OpenRouter API configuration
-export const OPENROUTER_CONFIG = {
-  apiKey: import.meta.env.VITE_OPENROUTER_API_KEY || '', // ⚠️ EXPOSED IN FRONTEND - USE PROXY INSTEAD
-  apiUrl: 'https://openrouter.ai/api/v1/chat/completions',
-  defaultModel: DEFAULT_OPENROUTER_MODEL,
-  temperature: 0.7,      // 0-2, higher = more creative
-  maxTokens: 3000,      // Maximum tokens in response (increased to reduce cut-off issues, model is instructed to stay within limits)
+// Qwen models use reasoning_format parameter
+export const QWEN_MODELS = [
+  'qwen/qwen3-32b'
+] as const
+
+// Helper function to check if a model is GPT-OSS
+export function isGPTOSSModel(model: string): boolean {
+  return GPT_OSS_MODELS.includes(model as any)
 }
 
-// Legacy OpenAI config (for backward compatibility)
-export const OPENAI_CONFIG = {
-  apiKey: import.meta.env.VITE_OPENAI_API_KEY || '',
-  model: 'gpt-3.5-turbo',
-  temperature: 0.7,
-  maxTokens: 3000,  // Increased to reduce cut-off issues, model is instructed to stay within limits
+// Helper function to check if a model is Qwen
+export function isQwenModel(model: string): boolean {
+  return QWEN_MODELS.includes(model as any)
 }
+
+// Advanced mode: Compound models with fallback
+export const ADVANCED_MODELS = {
+  primary: 'groq/compound',
+  fallback: 'groq/compound-mini'
+} as const
+
+// Classification models for smart routing (support structured outputs)
+export const CLASSIFICATION_MODELS = [
+  'moonshotai/kimi-k2-instruct-0905',
+  'openai/gpt-oss-safeguard-20b'
+] as const
+
+// Default Groq model (first in AUTO_MODELS)
+export const DEFAULT_GROQ_MODEL = AUTO_MODELS[0]
 
 // Backend API URL (your Railway/Render backend URL)
 export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000'

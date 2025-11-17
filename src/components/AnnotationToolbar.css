@@ -40,8 +40,11 @@
 .toolbar-button {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 0;
+  padding: 6px;
+  min-width: 32px;
+  height: 32px;
+  justify-content: center;
   background: transparent;
   border: 1px solid rgba(0, 0, 0, 0.2);
   border-radius: 6px;
@@ -49,16 +52,29 @@
   font-size: 14px;
   color: #333;
   transition: all 0.2s;
+  position: relative;
+}
+
+.toolbar-button:hover {
+  gap: 6px;
+  padding: 6px 12px;
+  min-width: auto;
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.3);
+}
+
+.toolbar-button-text {
+  display: none;
+  white-space: nowrap;
+}
+
+.toolbar-button:hover .toolbar-button-text {
+  display: inline;
 }
 
 [data-theme='dark'] .toolbar-button {
   border-color: rgba(255, 255, 255, 0.2);
   color: #ececf1;
-}
-
-.toolbar-button:hover {
-  background: rgba(0, 0, 0, 0.05);
-  border-color: rgba(0, 0, 0, 0.3);
 }
 
 [data-theme='dark'] .toolbar-button:hover {
@@ -140,5 +156,51 @@
 .download-button:hover {
   background: #357ae8;
   border-color: #357ae8;
+  gap: 6px;
+  padding: 6px 12px;
+  min-width: auto;
+}
+
+/* Ensure download button stays blue in dark theme on hover */
+[data-theme='dark'] .download-button:hover {
+  background: #357ae8;
+  border-color: #357ae8;
+  color: white;
+}
+
+.clear-button {
+  /* Default state - normal button */
+}
+
+/* Keep button expanded when in confirmation mode */
+.clear-button.confirming {
+  background: #dc3545 !important;
+  border-color: #dc3545 !important;
+  color: white !important;
+  gap: 6px !important;
+  padding: 6px 12px !important;
+  min-width: auto !important;
+}
+
+.clear-button.confirming .toolbar-button-text {
+  display: inline !important;
+}
+
+.clear-button.confirming:hover {
+  background: #c82333 !important;
+  border-color: #c82333 !important;
+  color: white !important;
+}
+
+[data-theme='dark'] .clear-button.confirming {
+  background: #dc3545 !important;
+  border-color: #dc3545 !important;
+  color: white !important;
+}
+
+[data-theme='dark'] .clear-button.confirming:hover {
+  background: #c82333 !important;
+  border-color: #c82333 !important;
+  color: white !important;
 }
 

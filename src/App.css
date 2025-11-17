@@ -73,7 +73,7 @@
   max-width: 600px; /* Reduced from 1200px to make it narrower */
   width: 600px; /* Fixed width */
   margin: 0; /* Remove auto margin */
-  z-index: 1000;
+  z-index: 10010; /* Higher than upload button (1001) to ensure dropdown appears above it */
   pointer-events: none; /* Allow clicks to pass through to PDF when chat is closed */
   transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease, left 0.3s ease;
   overflow: visible !important;
@@ -95,9 +95,9 @@
 /* Split chat: left panel */
 .chat-container.split-chat {
   position: relative;
-  width: 400px;
-  min-width: 300px;
-  max-width: 500px;
+  width: 500px;
+  min-width: 350px;
+  max-width: 600px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -193,9 +193,17 @@
     flex-direction: column;
   }
 
+  /* Make PDF viewer and chat 50:50 split on narrow screens */
+  .main-content.split-layout > :first-child {
+    flex: 1 1 50%;
+    min-height: 0;
+  }
+
   .chat-container.split-chat {
     width: 100%;
     max-width: 100%;
+    flex: 1 1 50%;
+    min-height: 0;
   }
 
   .chat-container.split-chat::before {

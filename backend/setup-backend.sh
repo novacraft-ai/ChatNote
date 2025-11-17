@@ -58,13 +58,25 @@ fi
 echo ""
 echo "Step 6: Admin API Key (Optional)"
 echo "--------------------------------"
-read -p "ADMIN_OPENROUTER_API_KEY (press Enter to skip): " ADMIN_API_KEY
+read -p "ADMIN_GROQ_API_KEY (press Enter to skip): " ADMIN_API_KEY
 
 echo ""
 echo "Step 7: Frontend URL"
 echo "--------------------"
 read -p "FRONTEND_URL [http://localhost:5173]: " FRONTEND_URL
 FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173}
+
+echo ""
+echo "Step 8: Content Moderation"
+echo "--------------------------"
+read -p "Enable content moderation with Llama Guard? (Y/n): " -n 1 -r
+echo
+ENABLE_MODERATION=${REPLY:-Y}
+if [[ $ENABLE_MODERATION =~ ^[Yy]$ ]] || [[ -z $ENABLE_MODERATION ]]; then
+  ENABLE_CONTENT_MODERATION="true"
+else
+  ENABLE_CONTENT_MODERATION="false"
+fi
 
 # Create .env file
 cat > .env << ENVFILE
@@ -84,14 +96,17 @@ GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
 # Admin Configuration
 ADMIN_EMAILS=$ADMIN_EMAILS
 
-# Admin OpenRouter API Key
-ADMIN_OPENROUTER_API_KEY=$ADMIN_API_KEY
+# Admin Groq API Key
+ADMIN_GROQ_API_KEY=$ADMIN_API_KEY
 
 # CORS Configuration
 FRONTEND_URL=$FRONTEND_URL
 
 # Encryption Key for API Keys
 ENCRYPTION_KEY=$ENCRYPTION_KEY
+
+# Content Moderation (uses Llama Guard via Groq)
+ENABLE_CONTENT_MODERATION=$ENABLE_CONTENT_MODERATION
 ENVFILE
 
 echo ""

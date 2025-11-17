@@ -245,9 +245,94 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
     }
   }, [pdfContentHeight, calculateNotePositions])
 
+  // When a new note is added, ensure it doesn't change the front note
+  // New notes should appear at the back of their stack
+  useEffect(() => {
+    if (notes.length === 0) {
+      setFrontNoteId(null)
+      return
+    }
+
+    // When notes change, check if frontNoteId is still valid
+    const frontNoteExists = notes.some((n) => n.id === frontNoteId)
+    if (frontNoteId && !frontNoteExists) {
+      // Front note was deleted, clear it
+      setFrontNoteId(null)
+    }
+    
+    // If no front note is set and there are notes, don't auto-set one
+    // This ensures new notes appear at the back (highest displayIndex)
+  }, [notes, frontNoteId])
+
   // Get note position from the calculated positions map
   const getNotePosition = (note: KnowledgeNote): number | undefined => {
     return notePositions.get(note.id)
+  }
+
+  // Group notes by position to handle overlapping notes (like Apple Wallet cards)
+  const getNoteStackInfo = (note: KnowledgeNote, allNotes: KnowledgeNote[]): { stackIndex: number; stackSize: number; basePosition: number; displayIndex: number } => {
+    const notePosition = getNotePosition(note)
+    if (notePosition === undefined) {
+      return { stackIndex: 0, stackSize: 1, basePosition: 0, displayIndex: 0 }
+    }
+
+    // Find all notes at the same position (within 10px threshold)
+    const positionThreshold = 10
+    const samePositionNotes = allNotes.filter((n) => {
+      const pos = getNotePosition(n)
+      return pos !== undefined && Math.abs(pos - notePosition) < positionThreshold
+    }).sort((a, b) => {
+      // Sort by creation time (older notes first) for consistent ordering
+      // Newer notes will have higher indices (at the back)
+      return a.createdAt - b.createdAt
+    })
+
+    const originalStackIndex = samePositionNotes.findIndex((n) => n.id === note.id)
+    const stackSize = samePositionNotes.length
+
+    // Find the base position (lowest position in the stack)
+    const basePosition = Math.min(...samePositionNotes.map((n) => getNotePosition(n) || 0))
+
+    // Calculate display index based on front note rotation
+    // New notes (highest originalStackIndex) should always be at the back (highest displayIndex)
+    let displayIndex = originalStackIndex
+    if (stackSize > 1 && frontNoteId) {
+      const frontNoteIndex = samePositionNotes.findIndex((n) => n.id === frontNoteId)
+      if (frontNoteIndex !== -1) {
+        // Rotate: front note becomes index 0, others shift
+        // But ensure newer notes (higher originalStackIndex) are always at the back
+        
+        // Count how many notes are newer than this note
+        const newerNotesCount = samePositionNotes.filter((_, idx) => 
+          idx > originalStackIndex
+        ).length
+        
+        if (originalStackIndex > frontNoteIndex) {
+          // This note is newer than the front note
+          // Place it at the back: stackSize - 1 - (number of notes newer than this)
+          // This ensures the newest note gets the highest displayIndex
+          displayIndex = stackSize - 1 - newerNotesCount
+        } else {
+          // This note is older than or equal to the front note
+          // Use rotation formula, but ensure it doesn't conflict with newer notes at the back
+          const baseDisplayIndex = (originalStackIndex - frontNoteIndex + stackSize) % stackSize
+          // Count notes newer than front note
+          const newerThanFrontCount = samePositionNotes.filter((_, idx) => 
+            idx > frontNoteIndex
+          ).length
+          // Older notes should be in positions 0 to (stackSize - 1 - newerThanFrontCount)
+          // So cap the displayIndex to ensure newer notes can be at the back
+          displayIndex = Math.min(baseDisplayIndex, stackSize - 1 - newerThanFrontCount)
+        }
+      }
+    } else if (stackSize > 1) {
+      // If no front note is set, the oldest note (index 0) should be at front
+      // Newest note (highest index) should be at back
+      // So displayIndex = originalStackIndex (no rotation needed)
+      displayIndex = originalStackIndex
+    }
+
+    return { stackIndex: originalStackIndex, stackSize, basePosition, displayIndex }
   }
 
   return (
@@ -313,7 +398,7 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
-          {/* Close button for mobile drawer */}
+          {/* Close button */}
           <button
             className="knowledge-notes-close"
             onClick={(e) => {
@@ -322,11 +407,17 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
             }}
             aria-label="Close knowledge notes"
             style={{
-              display: 'none', // Hidden by default, shown on mobile via CSS
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               background: 'transparent',
               border: 'none',
               cursor: 'pointer',
               padding: '4px',
+              width: '32px',
+              height: '32px',
+              borderRadius: '6px',
+              transition: 'background 0.2s, color 0.2s',
               // Color is handled by CSS for proper theme support
             }}
           >
@@ -356,32 +447,87 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
             const needsExpand = contentLines.length > 3 || (note.content && note.content.length > 200)
 
             const isFrontNote = frontNoteId === note.id
+            const stackInfo = getNoteStackInfo(note, notes)
+            
+            // Calculate stacking offsets (like Apple Wallet cards)
+            const stackOffset = 8 // Vertical offset per card
+            const rotationOffset = 1.5 // Rotation in degrees per card
+            const horizontalOffset = 2 // Horizontal offset per card
+            
+            // Use displayIndex for visual positioning (rotated based on front note)
+            // displayIndex 0 is the front card (no offset/rotation)
+            // displayIndex 1, 2, 3... are behind with increasing offsets
+            // Newest cards (highest originalStackIndex) should have the most clockwise rotation
+            const verticalOffset = stackInfo.displayIndex * stackOffset
+            const horizontalShift = stackInfo.displayIndex * horizontalOffset
+            
+            // Calculate rotation: cards further back get more clockwise rotation
+            // The newest card (highest originalStackIndex) should always have maximum rotation
+            const maxDisplayIndex = stackInfo.stackSize - 1
+            const isNewestCard = stackInfo.stackIndex === stackInfo.stackSize - 1
+            const maxRotation = maxDisplayIndex * rotationOffset
+            
+            // If this is the newest card, it should have maximum clockwise rotation
+            // Otherwise, use rotation based on displayIndex
+            const rotation = isNewestCard ? maxRotation : stackInfo.displayIndex * rotationOffset
+            
+            // Front note (displayIndex 0) should be on top with no rotation/offset
+            const finalTop = notePosition !== undefined 
+              ? (stackInfo.displayIndex === 0 ? notePosition : notePosition + verticalOffset)
+              : undefined
+            // Apply rotation: front card has no rotation, newest card has maximum clockwise rotation
+            const finalRotation = stackInfo.displayIndex === 0 ? 0 : rotation
+            const finalHorizontalShift = stackInfo.displayIndex === 0 ? 0 : horizontalShift
+            
             return (
               <div
                 key={note.id}
-                className={`knowledge-note-item ${isFrontNote ? 'note-front' : ''}`}
+                className={`knowledge-note-item ${isFrontNote ? 'note-front' : ''} ${stackInfo.stackSize > 1 ? 'note-stacked' : ''}`}
                 onClick={(e) => {
                   // Only handle click on the note card itself, not on buttons or clickable elements inside
                   const target = e.target as HTMLElement
                   if (target.closest('button') || target.closest('.note-linked-text')) {
                     return
                   }
-                  // Bring this note to front when clicked
-                  if (displayMode === 'following') {
+                  // Rotate the stack: bring clicked note to front (rotation effect)
+                  if (displayMode === 'following' && stackInfo.stackSize > 1) {
+                    // If clicking a note that's not already in front, rotate it to front
+                    if (frontNoteId !== note.id) {
+                      setFrontNoteId(note.id)
+                    } else {
+                      // If clicking the front note, rotate to next note in stack
+                      const samePositionNotes = notes.filter((n) => {
+                        const pos = getNotePosition(n)
+                        const notePos = getNotePosition(note)
+                        return pos !== undefined && notePos !== undefined && 
+                               Math.abs(pos - notePos) < 10
+                      }).sort((a, b) => a.createdAt - b.createdAt)
+                      
+                      const currentIndex = samePositionNotes.findIndex((n) => n.id === note.id)
+                      const nextIndex = (currentIndex + 1) % samePositionNotes.length
+                      setFrontNoteId(samePositionNotes[nextIndex].id)
+                    }
+                  } else if (displayMode === 'following') {
+                    // Single note or not in a stack, just set as front
                     setFrontNoteId(note.id)
                   }
                 }}
                 style={
-                  displayMode === 'following' && notePosition !== undefined 
+                  displayMode === 'following' && finalTop !== undefined 
                     ? { 
                         position: 'absolute', 
-                        top: `${notePosition}px`, 
-                        left: '8px', 
-                        right: '8px', 
+                        top: `${finalTop}px`, 
+                        left: `${8 + finalHorizontalShift}px`, 
+                        right: `${8 - finalHorizontalShift}px`, 
                         width: 'auto', 
-                        zIndex: isFrontNote ? 20 : 10, // Front note gets higher z-index
+                        zIndex: stackInfo.displayIndex === 0 ? 20 + stackInfo.stackSize : 10 + stackInfo.displayIndex, // Front note (displayIndex 0) gets highest z-index
                         pointerEvents: 'auto', // Ensure notes are clickable
-                        transition: 'z-index 0.2s ease' // Smooth transition
+                        transform: `rotate(${finalRotation}deg)`,
+                        transformOrigin: 'center top',
+                        transition: 'transform 0.3s ease, z-index 0.2s ease, top 0.3s ease, left 0.3s ease, right 0.3s ease',
+                        boxShadow: stackInfo.displayIndex === 0 
+                          ? '0 4px 16px rgba(0, 0, 0, 0.15)' 
+                          : `0 ${2 + stackInfo.displayIndex}px ${8 + stackInfo.displayIndex * 2}px rgba(0, 0, 0, ${0.1 + stackInfo.displayIndex * 0.02})`
                       } 
                     : { 
                         position: 'relative',
