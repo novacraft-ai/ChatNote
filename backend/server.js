@@ -5,6 +5,21 @@ import rateLimit from 'express-rate-limit'
 import { MongoClient, ObjectId } from 'mongodb'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
+import { getAuthUrl, getTokensFromCode, refreshAccessToken } from './googleDriveAuth.js'
+import {
+  findOrCreateChatNoteFolders,
+  uploadFileToDrive,
+  downloadFileFromDrive,
+  downloadJsonFromDrive,
+  loadIndexFile,
+  updateIndexFileEntry,
+  getPdfHistory,
+  truncateFileName,
+  generatePdfId,
+  findFileByName,
+  deleteFilesFromDrive,
+  removePdfFromIndex
+} from './googleDriveService.js'
 
 dotenv.config()
 
@@ -17,7 +32,7 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true)
-    
+
     // Get base URL from FRONTEND_URL (remove trailing slash and path if present)
     const frontendUrl = process.env.FRONTEND_URL
     if (frontendUrl) {
@@ -26,28 +41,28 @@ app.use(cors({
       // Extract base domain
       const urlObj = new URL(normalizedUrl)
       const baseUrl = `${urlObj.protocol}//${urlObj.host}`
-      
+
       // Allow exact match
       if (origin === normalizedUrl) {
         return callback(null, true)
       }
-      
+
       // Allow base domain (without path)
       if (origin === baseUrl) {
         return callback(null, true)
       }
-      
+
       // Allow any subpath under the base domain
       if (origin.startsWith(baseUrl + '/')) {
         return callback(null, true)
       }
     }
-    
+
     // For development, allow localhost and 127.0.0.1 variations
     if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
       return callback(null, true)
     }
-    
+
     // Reject all other origins
     console.warn('CORS blocked origin:', origin, '(Expected:', process.env.FRONTEND_URL || 'localhost', ')')
     callback(new Error('Not allowed by CORS'))
@@ -55,7 +70,9 @@ app.use(cors({
   credentials: true
 }))
 // Increase JSON body parser limit to handle base64-encoded images (50MB)
-app.use(express.json({ limit: '50mb' }))
+app.use(express.json({ limit: '200mb' }))
+// Add raw body parser for PDF uploads
+app.use(express.raw({ type: 'application/pdf', limit: '100mb' }))
 
 // Rate limiting
 const limiter = rateLimit({
@@ -116,28 +133,28 @@ function encrypt(text, key) {
   const keyBuffer = Buffer.from(key, 'hex')
   const iv = crypto.randomBytes(IV_LENGTH)
   const cipher = crypto.createCipheriv(ALGORITHM, keyBuffer, iv)
-  
+
   let encrypted = cipher.update(text, 'utf8')
   encrypted = Buffer.concat([encrypted, cipher.final()])
   const tag = cipher.getAuthTag()
-  
+
   return Buffer.concat([iv, tag, encrypted]).toString('base64')
 }
 
 function decrypt(encryptedData, key) {
   const keyBuffer = Buffer.from(key, 'hex')
   const data = Buffer.from(encryptedData, 'base64')
-  
+
   const iv = data.slice(0, IV_LENGTH)
   const tag = data.slice(IV_LENGTH, IV_LENGTH + TAG_LENGTH)
   const encrypted = data.slice(IV_LENGTH + TAG_LENGTH)
-  
+
   const decipher = crypto.createDecipheriv(ALGORITHM, keyBuffer, iv)
   decipher.setAuthTag(tag)
-  
+
   let decrypted = decipher.update(encrypted)
   decrypted = Buffer.concat([decrypted, decipher.final()])
-  
+
   return decrypted.toString('utf8')
 }
 
@@ -207,20 +224,20 @@ async function checkContentModeration(userContent, apiKey) {
 async function checkPromptGuard(textContent, apiKey) {
   const primaryModel = 'meta-llama/llama-prompt-guard-2-86m'
   const backupModel = 'meta-llama/llama-prompt-guard-2-22m'
-  
+
   // Try primary model first
   const primaryResult = await tryPromptGuardModel(textContent, apiKey, primaryModel, 'primary')
   if (primaryResult.success) {
     return primaryResult.result
   }
-  
+
   // If primary fails, try backup model
   console.warn('Prompt Guard primary model failed, trying backup:', primaryResult.error)
   const backupResult = await tryPromptGuardModel(textContent, apiKey, backupModel, 'backup')
   if (backupResult.success) {
     return backupResult.result
   }
-  
+
   // If both fail, allow request (fail open)
   console.warn('Prompt Guard both models failed, allowing request:', backupResult.error)
   return { safe: true }
@@ -278,24 +295,24 @@ async function tryPromptGuardModel(textContent, apiKey, model, modelType) {
     // - "safe" or "Safe" for legitimate prompts
     // - "unsafe" or JSON with violation details for jailbreak attempts
     // - Sometimes structured responses
-    
+
     // Be VERY conservative - only block if response is clearly and unambiguously indicating jailbreak
     // Check for explicit unsafe indicators (exact matches or clear patterns)
     const isExplicitlyUnsafe = resultLower === 'unsafe' ||
-                               resultLower === 'jailbreak' ||
-                               resultLower.startsWith('unsafe') ||
-                               resultLower.startsWith('jailbreak') ||
-                               (resultLower.includes('jailbreak') && resultLower.length < 50) || // Short responses with jailbreak
-                               (resultLower.includes('unsafe') && !resultLower.includes('safe') && resultLower.length < 50) // Short unsafe without "safe"
+      resultLower === 'jailbreak' ||
+      resultLower.startsWith('unsafe') ||
+      resultLower.startsWith('jailbreak') ||
+      (resultLower.includes('jailbreak') && resultLower.length < 50) || // Short responses with jailbreak
+      (resultLower.includes('unsafe') && !resultLower.includes('safe') && resultLower.length < 50) // Short unsafe without "safe"
 
     // Explicitly safe indicators - prioritize these
     const isExplicitlySafe = resultLower === 'safe' ||
-                            resultLower === 'ok' ||
-                            resultLower === 'allowed' ||
-                            resultLower.includes('safe') ||
-                            resultLower === '' ||
-                            resultLower === 'null' ||
-                            resultLower.length === 0
+      resultLower === 'ok' ||
+      resultLower === 'allowed' ||
+      resultLower.includes('safe') ||
+      resultLower === '' ||
+      resultLower === 'null' ||
+      resultLower.length === 0
 
     // Default to safe if unclear (fail open - better to allow than block legitimate content)
     // Only block if explicitly unsafe AND not explicitly safe
@@ -328,20 +345,20 @@ async function tryPromptGuardModel(textContent, apiKey, model, modelType) {
 async function checkLlamaGuard(textContent, apiKey) {
   const primaryModel = 'meta-llama/llama-guard-4-12b'
   const backupModel = 'openai/gpt-oss-safeguard-20b'
-  
+
   // Try primary model first
   const primaryResult = await tryLlamaGuardModel(textContent, apiKey, primaryModel, 'primary')
   if (primaryResult.success) {
     return primaryResult.result
   }
-  
+
   // If primary fails, try backup model
   console.warn('Llama Guard primary model failed, trying backup:', primaryResult.error)
   const backupResult = await tryLlamaGuardModel(textContent, apiKey, backupModel, 'backup')
   if (backupResult.success) {
     return backupResult.result
   }
-  
+
   // If both fail, allow request (fail open)
   console.warn('Llama Guard both models failed, allowing request:', backupResult.error)
   return { safe: true }
@@ -398,18 +415,18 @@ async function tryLlamaGuardModel(textContent, apiKey, model, modelType) {
     // Llama Guard returns responses like:
     // - "safe" or "Safe" for safe content
     // - "unsafe" or JSON with violation categories for unsafe content
-    
+
     // Check if content is explicitly marked as safe
-    const isExplicitlySafe = resultLower.trim() === 'safe' || 
-                             resultLower.includes('"safe"') ||
-                             resultLower.includes("'safe'")
-    
+    const isExplicitlySafe = resultLower.trim() === 'safe' ||
+      resultLower.includes('"safe"') ||
+      resultLower.includes("'safe'")
+
     // Check if content is explicitly marked as unsafe
-    const isExplicitlyUnsafe = resultLower.includes('unsafe') || 
-                               resultLower.includes('harmful') ||
-                               resultLower.includes('violation') ||
-                               resultLower.includes('inappropriate') ||
-                               (resultLower.includes('{') && !isExplicitlySafe) // JSON response usually means unsafe
+    const isExplicitlyUnsafe = resultLower.includes('unsafe') ||
+      resultLower.includes('harmful') ||
+      resultLower.includes('violation') ||
+      resultLower.includes('inappropriate') ||
+      (resultLower.includes('{') && !isExplicitlySafe) // JSON response usually means unsafe
 
     // Default to safe if unclear (fail open - better to allow than block legitimate content)
     // Only block if explicitly marked as unsafe
@@ -446,13 +463,13 @@ const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
-    
+
     // Get fresh user data from database
     const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) })
     if (!user) {
       return res.status(401).json({ error: 'User not found' })
     }
-    
+
     req.user = {
       id: user._id.toString(),
       email: user.email,
@@ -525,17 +542,17 @@ app.post('/api/auth/google', async (req, res) => {
         name: name || user.name || email.split('@')[0],
         picture: picture || user.picture || null
       }
-      
+
       // Update role if email is in admin list (allows promoting users)
       if (isAdmin && user.role !== 'admin') {
         updateData.role = 'admin'
       }
-      
+
       await db.collection('users').updateOne(
         { _id: user._id },
         { $set: updateData }
       )
-      
+
       // Update local user object
       user.name = updateData.name
       user.picture = updateData.picture
@@ -575,7 +592,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' })
     }
-    
+
     res.json({
       user: {
         id: user._id.toString(),
@@ -648,6 +665,638 @@ app.get('/api/user/api-key/status', authenticateToken, async (req, res) => {
   }
 })
 
+// ============================================
+// Google Drive OAuth Endpoints
+// ============================================
+
+async function clearDriveAuthorization(userId) {
+  await db.collection('users').updateOne(
+    { _id: new ObjectId(userId) },
+    {
+      $unset: {
+        googleDriveRefreshToken: "",
+        googleDriveAccessToken: "",
+        googleDriveTokenExpiry: "",
+        googleDriveAuthorizedAt: ""
+      }
+    }
+  )
+}
+
+// Initiate Google Drive OAuth flow
+// User must be authenticated first
+app.get('/api/drive/auth', authenticateToken, async (req, res) => {
+  try {
+    // Validate environment variables
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res.status(500).json({
+        error: 'GOOGLE_CLIENT_ID is not configured. Please set it in backend/.env file.'
+      })
+    }
+
+    if (!process.env.GOOGLE_CLIENT_SECRET) {
+      return res.status(500).json({
+        error: 'GOOGLE_CLIENT_SECRET is not configured. Please set it in backend/.env file.'
+      })
+    }
+
+    // Check if user already has Drive access
+    const user = await db.collection('users').findOne({ _id: new ObjectId(req.user.id) })
+
+    if (user?.googleDriveRefreshToken) {
+      // User already authorized - return success
+      return res.json({
+        authorized: true,
+        message: 'Drive access already authorized'
+      })
+    }
+
+    // Generate OAuth URL with user ID as state
+    const authUrl = getAuthUrl(req.user.id)
+
+    res.json({
+      authorized: false,
+      authUrl: authUrl
+    })
+  } catch (error) {
+    console.error('Drive auth error:', error)
+    if (error.message.includes('not set')) {
+      return res.status(500).json({
+        error: error.message + ' Please check your backend/.env file.'
+      })
+    }
+    res.status(500).json({ error: 'Failed to initiate Drive authorization: ' + error.message })
+  }
+})
+
+// OAuth callback - receives authorization code
+app.get('/api/auth/google/callback', async (req, res) => {
+  try {
+    const { code, state, error } = req.query
+
+    if (error) {
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}?drive_auth_error=${error}`)
+    }
+
+    if (!code) {
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}?drive_auth_error=no_code`)
+    }
+
+    // Exchange code for tokens
+    const tokens = await getTokensFromCode(code)
+
+    // Get user ID from state (or extract from token)
+    const userId = state
+
+    if (!userId) {
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}?drive_auth_error=invalid_state`)
+    }
+
+    // Store refresh token securely in database
+    // Encrypt it like we do with API keys
+    const encryptedRefreshToken = encrypt(tokens.refreshToken, process.env.ENCRYPTION_KEY)
+
+    await db.collection('users').updateOne(
+      { _id: new ObjectId(userId) },
+      {
+        $set: {
+          googleDriveRefreshToken: encryptedRefreshToken,
+          googleDriveAccessToken: tokens.accessToken, // Temporary - will refresh
+          googleDriveTokenExpiry: tokens.expiryDate,
+          googleDriveAuthorizedAt: new Date()
+        }
+      }
+    )
+
+    // Redirect to frontend with success
+    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}?drive_auth_success=true`)
+  } catch (error) {
+    console.error('OAuth callback error:', error)
+    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}?drive_auth_error=callback_failed`)
+  }
+})
+
+// Revoke Drive authorization (called on logout)
+app.post('/api/drive/revoke', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.collection('users').findOne({ _id: new ObjectId(req.user.id) })
+
+    if (user?.googleDriveRefreshToken) {
+      try {
+        // Decrypt and revoke the refresh token
+        const refreshToken = decrypt(user.googleDriveRefreshToken, process.env.ENCRYPTION_KEY)
+        const { revokeToken } = await import('./googleDriveAuth.js')
+        await revokeToken(refreshToken)
+      } catch (error) {
+        console.warn('Error revoking Drive token:', error)
+        // Continue to clear from database even if revocation fails
+      }
+
+      // Clear Drive tokens from database
+      await db.collection('users').updateOne(
+        { _id: new ObjectId(req.user.id) },
+        {
+          $unset: {
+            googleDriveRefreshToken: '',
+            googleDriveAccessToken: '',
+            googleDriveTokenExpiry: '',
+            googleDriveAuthorizedAt: ''
+          }
+        }
+      )
+    }
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Revoke Drive error:', error)
+    res.status(500).json({ error: 'Failed to revoke Drive access' })
+  }
+})
+
+// Check Drive authorization status
+app.get('/api/drive/status', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.collection('users').findOne({ _id: new ObjectId(req.user.id) })
+
+    if (!user?.googleDriveRefreshToken) {
+      return res.json({ authorized: false })
+    }
+
+    // Check if token is expired (or will expire soon)
+    const now = Date.now()
+    const expiryTime = user.googleDriveTokenExpiry || 0
+    const isExpired = expiryTime < now + (5 * 60 * 1000) // 5 minutes buffer
+
+    res.json({
+      authorized: true,
+      tokenExpired: isExpired,
+      authorizedAt: user.googleDriveAuthorizedAt
+    })
+  } catch (error) {
+    console.error('Drive status error:', error)
+    res.status(500).json({ error: 'Failed to check Drive status' })
+  }
+})
+
+// ============================================
+// Google Drive API Endpoints
+// ============================================
+
+// Helper: Get user's refresh token (decrypted)
+async function getUserRefreshToken(userId) {
+  const user = await db.collection('users').findOne({ _id: new ObjectId(userId) })
+  if (!user?.googleDriveRefreshToken) {
+    throw new Error('Drive not authorized')
+  }
+  return decrypt(user.googleDriveRefreshToken, process.env.ENCRYPTION_KEY)
+}
+
+// Get PDF history
+app.get('/api/drive/history', authenticateToken, async (req, res) => {
+  try {
+    const refreshToken = await getUserRefreshToken(req.user.id)
+    const pdfs = await getPdfHistory(refreshToken)
+    res.json({ pdfs })
+  } catch (error) {
+    console.error('Get history error:', error)
+    if (error.response?.data?.error === 'invalid_grant' || 
+        error.code === 'invalid_grant' ||
+        error.message?.includes('invalid_grant') ||
+        error.message === 'INVALID_GRANT' ||
+        error.message?.includes('INVALID_GRANT') ||
+        error.name === 'INVALID_GRANT') {
+      await clearDriveAuthorization(req.user.id)
+      return res.status(403).json({ error: 'Drive authorization expired. Please authorize again.' })
+    }
+    if (error.message === 'Drive not authorized') {
+      return res.status(403).json({ error: 'Drive not authorized. Please authorize Drive access first.' })
+    }
+    res.status(500).json({ error: 'Failed to get PDF history' })
+  }
+})
+
+// Upload PDF to Drive
+// Note: This endpoint expects PDF as base64 string in JSON body
+// Frontend should send: { pdfBase64: string, fileName: string }
+app.post('/api/drive/upload-pdf', authenticateToken, express.json({ limit: '100mb' }), async (req, res) => {
+  try {
+    const { pdfBase64, fileName, displayName } = req.body
+
+    if (!pdfBase64) {
+      return res.status(400).json({ error: 'PDF file required (as base64)' })
+    }
+
+    // Convert base64 to buffer
+    let pdfBuffer
+    try {
+      pdfBuffer = Buffer.from(pdfBase64, 'base64')
+      if (pdfBuffer.length === 0) {
+        throw new Error('Invalid base64: resulted in empty buffer')
+      }
+    } catch (bufferError) {
+      console.error('Base64 conversion error:', bufferError)
+      return res.status(400).json({ error: 'Invalid base64 data', details: bufferError.message })
+    }
+
+    const finalFileName = fileName || 'document.pdf'
+
+    console.log(`[Upload PDF] Starting upload for file: ${finalFileName}, size: ${pdfBuffer.length} bytes`)
+
+    const refreshToken = await getUserRefreshToken(req.user.id)
+    console.log('[Upload PDF] Got refresh token, creating folders...')
+
+    const folders = await findOrCreateChatNoteFolders(refreshToken)
+    console.log('[Upload PDF] Folders created:', folders)
+
+    // Generate PDF ID
+    const pdfId = generatePdfId()
+    console.log('[Upload PDF] Generated PDF ID:', pdfId)
+
+    // Upload original PDF
+    console.log('[Upload PDF] Uploading original PDF to Drive...')
+    const originalPdfFileId = await uploadFileToDrive(
+      folders.pdfsFolderId,
+      `${pdfId}-original.pdf`,
+      pdfBuffer,
+      'application/pdf',
+      refreshToken
+    )
+    console.log('[Upload PDF] Original PDF uploaded, file ID:', originalPdfFileId)
+
+    // Create metadata
+    const metadata = {
+      pdfId,
+      originalFileName: finalFileName,
+      displayName: displayName || truncateFileName(finalFileName),
+      uploadedAt: Date.now(),
+      lastModifiedAt: Date.now(),
+      pageCount: 0, // Will be updated when PDF is loaded
+      hasAnnotations: false,
+      hasNotes: false,
+      fileIds: {
+        original: originalPdfFileId,
+        metadata: null,
+        annotations: null,
+        notes: null
+      }
+    }
+
+    // Upload metadata file
+    const metadataFileId = await uploadFileToDrive(
+      folders.metadataFolderId,
+      `${pdfId}-metadata.json`,
+      JSON.stringify(metadata),
+      'application/json',
+      refreshToken
+    )
+    metadata.fileIds.metadata = metadataFileId
+
+    // Update index.json
+    await updateIndexFileEntry(folders.chatNoteFolderId, {
+      pdfId: metadata.pdfId,
+      originalFileName: metadata.originalFileName,
+      displayName: metadata.displayName,
+      uploadedAt: metadata.uploadedAt,
+      lastModifiedAt: metadata.lastModifiedAt,
+      pageCount: metadata.pageCount,
+      hasAnnotations: false,
+      hasNotes: false,
+      fileIds: metadata.fileIds
+    }, refreshToken)
+
+    res.json({
+      pdfId: metadata.pdfId,
+      displayName: metadata.displayName,
+      fileIds: metadata.fileIds
+    })
+  } catch (error) {
+    console.error('Upload PDF error:', error)
+    console.error('Error stack:', error.stack)
+    if (error.response?.data?.error === 'invalid_grant' || 
+        error.code === 'invalid_grant' ||
+        error.message?.includes('invalid_grant') ||
+        error.message === 'INVALID_GRANT' ||
+        error.message?.includes('INVALID_GRANT') ||
+        error.name === 'INVALID_GRANT') {
+      await clearDriveAuthorization(req.user.id)
+      return res.status(403).json({ error: 'Drive authorization expired. Please authorize again.' })
+    }
+    if (error.message === 'Drive not authorized') {
+      return res.status(403).json({ error: 'Drive not authorized' })
+    }
+    res.status(500).json({
+      error: 'Failed to upload PDF',
+      details: error.message || 'Unknown error',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    })
+  }
+})
+
+// Load PDF from history (with annotations and notes)
+app.get('/api/drive/load-pdf/:pdfId', authenticateToken, async (req, res) => {
+  try {
+    const { pdfId } = req.params
+    const refreshToken = await getUserRefreshToken(req.user.id)
+
+    // Load metadata
+    const folders = await findOrCreateChatNoteFolders(refreshToken)
+    const metadataFile = await findFileByName(`${pdfId}-metadata.json`, folders.metadataFolderId, refreshToken)
+
+    if (!metadataFile) {
+      return res.status(404).json({ error: 'PDF not found' })
+    }
+
+    const metadata = await downloadJsonFromDrive(metadataFile.id, refreshToken)
+
+    // Download PDF (use annotated if exists, otherwise original)
+    const pdfFileId = metadata.fileIds.annotated || metadata.fileIds.original
+    const pdfBuffer = await downloadFileFromDrive(pdfFileId, refreshToken)
+    const pdfBase64 = pdfBuffer.toString('base64')
+
+    // Load annotations (if exists)
+    let annotations = []
+    if (metadata.fileIds.annotations) {
+      try {
+        const annotationsData = await downloadJsonFromDrive(metadata.fileIds.annotations, refreshToken)
+        annotations = annotationsData.annotations || []
+      } catch (error) {
+        console.warn('Failed to load annotations:', error)
+      }
+    }
+
+    // Load knowledge notes (if exists)
+    let knowledgeNotes = []
+    if (metadata.fileIds.notes) {
+      try {
+        const notesData = await downloadJsonFromDrive(metadata.fileIds.notes, refreshToken)
+        knowledgeNotes = notesData.notes || []
+      } catch (error) {
+        console.warn('Failed to load notes:', error)
+      }
+    }
+
+    res.json({
+      pdfBlob: pdfBase64,
+      annotations,
+      knowledgeNotes,
+      metadata: {
+        pdfId: metadata.pdfId,
+        originalFileName: metadata.originalFileName,
+        pageCount: metadata.pageCount,
+        uploadedAt: metadata.uploadedAt,
+        lastModifiedAt: metadata.lastModifiedAt
+      }
+    })
+  } catch (error) {
+    console.error('Load PDF error:', error)
+    if (error.response?.data?.error === 'invalid_grant' || 
+        error.code === 'invalid_grant' ||
+        error.message?.includes('invalid_grant') ||
+        error.message === 'INVALID_GRANT' ||
+        error.message?.includes('INVALID_GRANT') ||
+        error.name === 'INVALID_GRANT') {
+      await clearDriveAuthorization(req.user.id)
+      return res.status(403).json({ error: 'Drive authorization expired. Please authorize again.' })
+    }
+    if (error.message === 'Drive not authorized') {
+      return res.status(403).json({ error: 'Drive not authorized' })
+    }
+    res.status(500).json({ error: 'Failed to load PDF' })
+  }
+})
+
+// Delete PDF from Drive and history
+app.delete('/api/drive/history/:pdfId', authenticateToken, async (req, res) => {
+  try {
+    const { pdfId } = req.params
+    if (!pdfId) {
+      return res.status(400).json({ error: 'PDF ID is required' })
+    }
+
+    const refreshToken = await getUserRefreshToken(req.user.id)
+    const folders = await findOrCreateChatNoteFolders(refreshToken)
+
+    // Attempt to load metadata for comprehensive file IDs
+    let metadata = null
+    const metadataFile = await findFileByName(`${pdfId}-metadata.json`, folders.metadataFolderId, refreshToken)
+    if (metadataFile) {
+      try {
+        metadata = await downloadJsonFromDrive(metadataFile.id, refreshToken)
+      } catch (error) {
+        console.warn('Failed to read metadata for deletion:', error.message)
+      }
+    }
+
+    // Remove from index (returns entry if it existed)
+    const removedEntry = await removePdfFromIndex(folders.chatNoteFolderId, pdfId, refreshToken)
+    if (!removedEntry && !metadata) {
+      return res.status(404).json({ error: 'PDF not found' })
+    }
+
+    // Collect file IDs to delete
+    const fileIds = new Set()
+    const collectFileIds = (fileMap) => {
+      if (!fileMap) return
+      Object.values(fileMap).forEach(id => {
+        if (id) fileIds.add(id)
+      })
+    }
+
+    collectFileIds(metadata?.fileIds)
+    collectFileIds(removedEntry?.fileIds)
+    if (metadataFile?.id) {
+      fileIds.add(metadataFile.id)
+    }
+
+    if (fileIds.size > 0) {
+      await deleteFilesFromDrive(Array.from(fileIds), refreshToken)
+    }
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Delete PDF error:', error)
+    if (error.response?.data?.error === 'invalid_grant' || 
+        error.code === 'invalid_grant' ||
+        error.message?.includes('invalid_grant') ||
+        error.message === 'INVALID_GRANT' ||
+        error.message?.includes('INVALID_GRANT') ||
+        error.name === 'INVALID_GRANT') {
+      await clearDriveAuthorization(req.user.id)
+      return res.status(403).json({ error: 'Drive authorization expired. Please authorize again.' })
+    }
+    if (error.message === 'Drive not authorized') {
+      return res.status(403).json({ error: 'Drive not authorized' })
+    }
+    res.status(500).json({ error: 'Failed to delete PDF' })
+  }
+})
+
+// Save annotations
+app.post('/api/drive/save-annotations/:pdfId', authenticateToken, async (req, res) => {
+  try {
+    const { pdfId } = req.params
+    const { annotations } = req.body
+    const refreshToken = await getUserRefreshToken(req.user.id)
+
+    // Load metadata
+    const folders = await findOrCreateChatNoteFolders(refreshToken)
+    const metadataFile = await findFileByName(`${pdfId}-metadata.json`, folders.metadataFolderId, refreshToken)
+
+    if (!metadataFile) {
+      return res.status(404).json({ error: 'PDF not found' })
+    }
+
+    const metadata = await downloadJsonFromDrive(metadataFile.id, refreshToken)
+
+    // Create/update annotations file
+    const annotationsData = {
+      pdfId,
+      version: 1,
+      lastModified: Date.now(),
+      annotations: annotations || []
+    }
+
+    if (metadata.fileIds.annotations) {
+      await uploadFileToDrive(
+        folders.metadataFolderId,
+        `${pdfId}-annotations.json`,
+        JSON.stringify(annotationsData),
+        'application/json',
+        refreshToken
+      )
+    } else {
+      const annotationsFileId = await uploadFileToDrive(
+        folders.metadataFolderId,
+        `${pdfId}-annotations.json`,
+        JSON.stringify(annotationsData),
+        'application/json',
+        refreshToken
+      )
+      metadata.fileIds.annotations = annotationsFileId
+    }
+
+    // Update metadata
+    metadata.hasAnnotations = annotations && annotations.length > 0
+    metadata.lastModifiedAt = Date.now()
+    await uploadFileToDrive(
+      folders.metadataFolderId,
+      `${pdfId}-metadata.json`,
+      JSON.stringify(metadata),
+      'application/json',
+      refreshToken
+    )
+
+    // Update index
+    await updateIndexFileEntry(folders.chatNoteFolderId, {
+      pdfId,
+      hasAnnotations: metadata.hasAnnotations,
+      lastModifiedAt: metadata.lastModifiedAt,
+      fileIds: metadata.fileIds
+    }, refreshToken)
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Save annotations error:', error)
+    // Check for invalid_grant error from Google OAuth
+    if (error.response?.data?.error === 'invalid_grant' || 
+        error.code === 'invalid_grant' ||
+        error.message?.includes('invalid_grant') ||
+        error.message === 'INVALID_GRANT' ||
+        error.message?.includes('INVALID_GRANT') ||
+        error.name === 'INVALID_GRANT') {
+      await clearDriveAuthorization(req.user.id)
+      return res.status(403).json({ error: 'Drive authorization expired. Please authorize again.' })
+    }
+    if (error.message === 'Drive not authorized') {
+      return res.status(403).json({ error: 'Drive not authorized' })
+    }
+    res.status(500).json({ error: 'Failed to save annotations' })
+  }
+})
+
+// Save knowledge notes
+app.post('/api/drive/save-notes/:pdfId', authenticateToken, async (req, res) => {
+  try {
+    const { pdfId } = req.params
+    const { notes } = req.body
+    const refreshToken = await getUserRefreshToken(req.user.id)
+
+    // Load metadata
+    const folders = await findOrCreateChatNoteFolders(refreshToken)
+    const metadataFile = await findFileByName(`${pdfId}-metadata.json`, folders.metadataFolderId, refreshToken)
+
+    if (!metadataFile) {
+      return res.status(404).json({ error: 'PDF not found' })
+    }
+
+    const metadata = await downloadJsonFromDrive(metadataFile.id, refreshToken)
+
+    // Create/update notes file
+    const notesData = {
+      pdfId,
+      version: 1,
+      lastModified: Date.now(),
+      notes: notes || []
+    }
+
+    if (metadata.fileIds.notes) {
+      await uploadFileToDrive(
+        folders.metadataFolderId,
+        `${pdfId}-notes.json`,
+        JSON.stringify(notesData),
+        'application/json',
+        refreshToken
+      )
+    } else {
+      const notesFileId = await uploadFileToDrive(
+        folders.metadataFolderId,
+        `${pdfId}-notes.json`,
+        JSON.stringify(notesData),
+        'application/json',
+        refreshToken
+      )
+      metadata.fileIds.notes = notesFileId
+    }
+
+    // Update metadata
+    metadata.hasNotes = notes && notes.length > 0
+    metadata.lastModifiedAt = Date.now()
+    await uploadFileToDrive(
+      folders.metadataFolderId,
+      `${pdfId}-metadata.json`,
+      JSON.stringify(metadata),
+      'application/json',
+      refreshToken
+    )
+
+    // Update index
+    await updateIndexFileEntry(folders.chatNoteFolderId, {
+      pdfId,
+      hasNotes: metadata.hasNotes,
+      lastModifiedAt: metadata.lastModifiedAt,
+      fileIds: metadata.fileIds
+    }, refreshToken)
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('Save notes error:', error)
+    if (error.response?.data?.error === 'invalid_grant' || 
+        error.code === 'invalid_grant' ||
+        error.message?.includes('invalid_grant') ||
+        error.message === 'INVALID_GRANT' ||
+        error.message?.includes('INVALID_GRANT') ||
+        error.name === 'INVALID_GRANT') {
+      await clearDriveAuthorization(req.user.id)
+      return res.status(403).json({ error: 'Drive authorization expired. Please authorize again.' })
+    }
+    if (error.message === 'Drive not authorized') {
+      return res.status(403).json({ error: 'Drive not authorized' })
+    }
+    res.status(500).json({ error: 'Failed to save notes' })
+  }
+})
+
+
 // Chat proxy endpoint
 // Embedding endpoint for RAG (proxies to Hugging Face, Cohere, or OpenAI)
 // No authentication required for embedding requests (they're free and rate-limited)
@@ -666,7 +1315,7 @@ app.post('/api/embedding', async (req, res) => {
       const model = req.body.model || 'sentence-transformers/all-MiniLM-L6-v2'
       // Use new Hugging Face router endpoint
       const hfUrl = `https://router.huggingface.co/hf-inference/${model}`
-      
+
       try {
         const hfResponse = await fetch(hfUrl, {
           method: 'POST',
@@ -792,8 +1441,8 @@ app.post('/api/chat', chatLimiter, authenticateToken, async (req, res) => {
       })
 
       if (!apiKeyDoc) {
-        return res.status(400).json({ 
-          error: 'API key not configured. Please add your Groq API key in settings.' 
+        return res.status(400).json({
+          error: 'API key not configured. Please add your Groq API key in settings.'
         })
       }
 
@@ -826,25 +1475,30 @@ Use this context to provide relevant and accurate answers. If the context doesn'
     const latestUserMessage = cleanedMessages
       .filter(msg => msg.role === 'user')
       .pop()
-    
+
     if (latestUserMessage) {
-      const moderationResult = await checkContentModeration(latestUserMessage.content, apiKey)
-      if (!moderationResult.safe) {
-        console.warn('Content moderation flagged message:', {
-          userId: req.user.id,
-          email: req.user.email,
-          stage: moderationResult.stage,
-          reason: moderationResult.reason
-        })
-        
-        // Provide specific error message based on which stage failed
-        const errorMessage = moderationResult.stage === 'jailbreak_detection'
-          ? 'Your message appears to be attempting to bypass system safety measures. Please revise your message and try again.'
-          : 'Your message contains content that violates our usage policy. Please revise your message and try again.'
-        
-        return res.status(400).json({
-          error: errorMessage
-        })
+      // Skip moderation for internal title generation prompts
+      const isTitleGenerationPrompt = latestUserMessage.content.includes('You generate short, descriptive titles for uploaded PDFs')
+
+      if (!isTitleGenerationPrompt) {
+        const moderationResult = await checkContentModeration(latestUserMessage.content, apiKey)
+        if (!moderationResult.safe) {
+          console.warn('Content moderation flagged message:', {
+            userId: req.user.id,
+            email: req.user.email,
+            stage: moderationResult.stage,
+            reason: moderationResult.reason
+          })
+
+          // Provide specific error message based on which stage failed
+          const errorMessage = moderationResult.stage === 'jailbreak_detection'
+            ? 'Your message appears to be attempting to bypass system safety measures. Please revise your message and try again.'
+            : 'Your message contains content that violates our usage policy. Please revise your message and try again.'
+
+          return res.status(400).json({
+            error: errorMessage
+          })
+        }
       }
     }
 
@@ -868,7 +1522,7 @@ Use this context to provide relevant and accurate answers. If the context doesn'
     if (req.body.include_reasoning !== undefined) {
       requestBody.include_reasoning = req.body.include_reasoning
     }
-    
+
     // Add response_format for structured outputs (JSON schema) if provided
     if (req.body.response_format) {
       requestBody.response_format = req.body.response_format
@@ -892,8 +1546,7 @@ Use this context to provide relevant and accurate answers. If the context doesn'
       } catch {
         error = { error: { message: errorText || 'Unknown error' } }
       }
-      
-      // Log detailed error for debugging (server-side only)
+
       console.error('Groq API error:', {
         status: response.status,
         statusText: response.statusText,
@@ -901,10 +1554,10 @@ Use this context to provide relevant and accurate answers. If the context doesn'
         model: requestBody.model,
         apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + '...' : 'missing'
       })
-      
+
       // Sanitize error message before sending to client
       let userMessage = 'An error occurred while processing your request.'
-      
+
       if (response.status === 429) {
         userMessage = 'Rate limit reached. Please wait a moment and try again.'
       } else if (response.status === 401) {
@@ -925,7 +1578,7 @@ Use this context to provide relevant and accurate answers. If the context doesn'
       } else if (response.status >= 500 && response.status < 600) {
         userMessage = 'Service temporarily unavailable. Please try again in a moment.'
       }
-      
+
       return res.status(response.status).json({
         error: userMessage
       })

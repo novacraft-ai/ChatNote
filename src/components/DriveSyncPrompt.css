@@ -1,0 +1,83 @@
+.drive-sync-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 10010;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.drive-sync-modal {
+    background-color: #ffffff;
+    color: #333;
+    padding: 24px;
+    border-radius: 12px;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    text-align: center;
+}
+
+.drive-sync-modal.dark {
+    background-color: #2a2a2a;
+    color: #ececf1;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.drive-sync-modal h3 {
+    margin-top: 0;
+    margin-bottom: 16px;
+}
+
+.drive-sync-modal p {
+    margin-bottom: 24px;
+    line-height: 1.5;
+    opacity: 0.8;
+}
+
+.drive-sync-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.drive-sync-buttons button {
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.button-cancel {
+    border: 1px solid #ddd;
+    background: transparent;
+    color: inherit;
+}
+
+.drive-sync-modal.dark .button-cancel {
+    border-color: #555;
+}
+
+.button-cancel:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.drive-sync-modal.dark .button-cancel:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.button-confirm {
+    border: none;
+    background: #4285f4;
+    color: white;
+    font-weight: 500;
+}
+
+.button-confirm:hover {
+    background: #357ae8;
+}

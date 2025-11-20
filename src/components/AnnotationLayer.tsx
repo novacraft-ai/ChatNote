@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { Annotation, TextBoxAnnotation, ImageAnnotation } from '../types/annotations'
+import { Annotation, TextBoxAnnotation, ImageAnnotation, HighlightAnnotation } from '../types/annotations'
 import './AnnotationLayer.css'
 
 interface AnnotationLayerProps {
@@ -12,7 +12,7 @@ interface AnnotationLayerProps {
   onAnnotationUpdate: (annotation: Annotation) => void
   onAnnotationDelete: (id: string) => void
   onAnnotationSelect: (id: string | null) => void
-  mode: 'textbox' | 'image' | 'select' | null
+  mode: 'textbox' | 'image' | 'select' | 'highlight' | null
 }
 
 const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
@@ -104,7 +104,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   const handleAnnotationMouseDown = useCallback(
     (e: React.MouseEvent, annotation: Annotation) => {
       e.stopPropagation()
-      
+
       // Check if clicking on resize handle
       const target = e.target as HTMLElement
       if (target.classList.contains('resize-handle')) {
@@ -192,11 +192,11 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       } else if (isResizing && resizeHandle && resizeStart) {
         const currentX = e.clientX - rect.left
         const currentY = e.clientY - rect.top
-        
+
         // Calculate pixel deltas
         const deltaXPixels = currentX - resizeStart.x
         const deltaYPixels = currentY - resizeStart.y
-        
+
         // Convert to relative coordinates (0-1 scale) with smoothing factor
         // Use a smaller factor to reduce sensitivity (0.5 means half the sensitivity)
         const smoothingFactor = 0.5
@@ -229,7 +229,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         }
 
         const constrained = constrainToPage(newX, newY, newWidth, newHeight)
-        
+
         // For text boxes, auto-adjust height based on content when width changes
         if (selectedAnnotation.type === 'textbox') {
           const textAnnotation = selectedAnnotation as TextBoxAnnotation
@@ -250,7 +250,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             onAnnotationUpdate({ ...selectedAnnotation, ...constrained })
           }
         } else {
-        onAnnotationUpdate({ ...selectedAnnotation, ...constrained })
+          onAnnotationUpdate({ ...selectedAnnotation, ...constrained })
         }
       } else if (isDragging) {
         const newX = toRelativeX(e.clientX - rect.left - dragStart.x)
@@ -286,7 +286,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           }
         }
       }
-      
+
       setIsDragging(false)
       setIsResizing(false)
       setIsRotating(false)
@@ -418,11 +418,11 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
               // Check if the click target is within the textbox-controls
               const target = e.target as HTMLElement
               const isControlClick = target.closest('.textbox-controls') !== null ||
-                                     target.closest('.textbox-font-size-input') !== null ||
-                                     target.closest('.textbox-color-button') !== null ||
-                                     target.closest('.textbox-color-picker') !== null
+                target.closest('.textbox-font-size-input') !== null ||
+                target.closest('.textbox-color-button') !== null ||
+                target.closest('.textbox-color-picker') !== null
               if (!isControlClick) {
-              setEditingText(annotation.id)
+                setEditingText(annotation.id)
               }
             }}
             style={{
@@ -444,7 +444,7 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     const pixelY = toPixelY(annotation.y)
     const containerWidth = toPixelWidth(annotation.width)
     const containerHeight = toPixelHeight(annotation.height)
-    
+
     // Calculate actual rendered image size with object-fit: contain
     // The image maintains its aspect ratio and fits within the container
     // Use base dimensions (without scale) for aspect ratio calculation to ensure consistent scaling
@@ -452,10 +452,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     const baseContainerHeight = annotation.height * pageHeight
     const imageAspectRatio = annotation.imageWidth / annotation.imageHeight
     const containerAspectRatio = baseContainerWidth / baseContainerHeight
-    
+
     let actualImageWidth: number
     let actualImageHeight: number
-    
+
     if (imageAspectRatio > containerAspectRatio) {
       // Image is wider - it fills the container width
       actualImageWidth = containerWidth
@@ -503,11 +503,62 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
             <div className="rotate-handle" />
           </>
         )}
-        <img 
-          src={annotation.imageData} 
-          alt="Annotation" 
+        <img
+          src={annotation.imageData}
+          alt="Annotation"
           draggable={false}
         />
+      </div>
+    )
+  }
+
+  // Render highlight annotation
+  const renderHighlight = (annotation: HighlightAnnotation) => {
+    const isSelected = annotation.id === selectedAnnotationId
+    const pixelX = toPixelX(annotation.x)
+    const pixelY = toPixelY(annotation.y)
+    const pixelWidth = toPixelWidth(annotation.width)
+    const pixelHeight = toPixelHeight(annotation.height)
+
+    return (
+      <div
+        key={annotation.id}
+        className={`annotation highlight-annotation ${isSelected ? 'selected' : ''}`}
+        style={{
+          left: `${pixelX}px`,
+          top: `${pixelY}px`,
+          width: `${pixelWidth}px`,
+          height: `${pixelHeight}px`,
+          backgroundColor: annotation.color,
+          opacity: annotation.opacity || 0.4,
+          transform: `rotate(${annotation.rotation}deg)`,
+          transformOrigin: 'center center',
+        }}
+        onMouseDown={(e) => handleAnnotationMouseDown(e, annotation)}
+      >
+        {isSelected && (
+          <>
+            <button
+              className="delete-button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onAnnotationDelete(annotation.id)
+              }}
+              title="Delete (or press Delete key)"
+            >
+              ×
+            </button>
+            <div className="resize-handle" data-handle="ne" />
+            <div className="resize-handle" data-handle="sw" />
+            <div className="resize-handle" data-handle="se" />
+            <div className="resize-handle" data-handle="n" />
+            <div className="resize-handle" data-handle="s" />
+            <div className="resize-handle" data-handle="w" />
+            <div className="resize-handle" data-handle="e" />
+            {/* Highlights typically don't need rotation, but we support it for consistency */}
+            <div className="rotate-handle" />
+          </>
+        )}
       </div>
     )
   }
@@ -527,14 +578,16 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
       ref={layerRef}
       className="annotation-layer"
       style={layerStyle}
-      // Note: onClick is removed because pointer-events: none prevents it from firing
-      // Text box creation and deselection are handled by PDFViewer
+    // Note: onClick is removed because pointer-events: none prevents it from firing
+    // Text box creation and deselection are handled by PDFViewer
     >
       {pageAnnotations.map((annotation) => {
         if (annotation.type === 'textbox') {
-          return renderTextBox(annotation)
+          return renderTextBox(annotation as TextBoxAnnotation)
         } else if (annotation.type === 'image') {
-          return renderImage(annotation)
+          return renderImage(annotation as ImageAnnotation)
+        } else if (annotation.type === 'highlight') {
+          return renderHighlight(annotation as HighlightAnnotation)
         }
         return null
       })}

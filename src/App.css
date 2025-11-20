@@ -12,7 +12,7 @@
   flex-direction: column;
   overflow: hidden;
   position: relative;
-  transition: flex-direction 0.3s ease;
+  transition: flex-direction 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding-right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   background-color: #f5f5f5; /* Light theme background */
 }
 
@@ -23,8 +23,8 @@
 /* In float layout, when knowledge notes are visible, add padding to make room */
 .main-content:not(.split-layout).has-knowledge-notes,
 .main-content:not(.split-layout):has(.knowledge-notes-panel.floating-layout) {
-  padding-right: 370px; /* 350px panel width + 20px spacing */
-  transition: padding-right 0.3s ease;
+  padding-right: 350px; /* 350px panel width - no gap */
+  transition: padding-right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Remove padding on narrow screens where knowledge notes become a drawer */
@@ -43,6 +43,7 @@
 .main-content.split-layout > :first-child {
   flex: 1;
   min-width: 0;
+  order: 1; /* PDF viewer on the left */
 }
 
 /* Knowledge notes panel positioning */
@@ -52,16 +53,21 @@
 
 /* In split layout, knowledge notes go between PDF and chat */
 .main-content.split-layout .knowledge-notes-panel.split-layout {
-  order: 2; /* Between PDF (order: 1) and chat (order: 3) */
+  order: 2; /* Middle: between PDF (order 1) and chat (order 3) */
 }
 
 .main-content.split-layout .chat-container.split-chat {
-  order: 3;
+  order: 3; /* Chat on the right */
 }
 
 /* Chat container */
 .chat-container {
-  transition: all 0.3s ease;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
+              opacity 0.3s ease, 
+              transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              left 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              bottom 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Floating chat bar at the bottom */
@@ -75,7 +81,12 @@
   margin: 0; /* Remove auto margin */
   z-index: 10010; /* Higher than upload button (1001) to ensure dropdown appears above it */
   pointer-events: none; /* Allow clicks to pass through to PDF when chat is closed */
-  transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease, left 0.3s ease;
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+              transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
+              visibility 0.3s ease, 
+              left 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              bottom 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: visible !important;
 }
 
@@ -103,6 +114,7 @@
   flex-direction: column;
   z-index: 1;
   pointer-events: auto;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Enhanced aesthetic divider with improved visibility */

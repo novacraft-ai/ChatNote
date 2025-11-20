@@ -3,6 +3,7 @@ import { createContext, useContext, useState, ReactNode, useEffect } from 'react
 interface ChatVisibilityContextType {
   isChatVisible: boolean
   toggleChatVisibility: () => void
+  setChatVisible: (visible: boolean) => void
 }
 
 const ChatVisibilityContext = createContext<ChatVisibilityContextType | undefined>(undefined)
@@ -23,8 +24,12 @@ export function ChatVisibilityProvider({ children }: { children: ReactNode }) {
     setIsChatVisible((prev) => !prev)
   }
 
+  const setChatVisible = (visible: boolean) => {
+    setIsChatVisible(visible)
+  }
+
   return (
-    <ChatVisibilityContext.Provider value={{ isChatVisible, toggleChatVisibility }}>
+    <ChatVisibilityContext.Provider value={{ isChatVisible, toggleChatVisibility, setChatVisible }}>
       {children}
     </ChatVisibilityContext.Provider>
   )

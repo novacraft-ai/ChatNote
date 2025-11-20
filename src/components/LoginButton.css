@@ -115,16 +115,21 @@
   border-radius: 4px;
 }
 
+.logout-button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 [data-theme='dark'] .logout-button {
   color: #ececf1;
 }
 
-.logout-button:hover {
+.logout-button:hover:not(:disabled) {
   opacity: 1;
   background: rgba(0, 0, 0, 0.05);
 }
 
-[data-theme='dark'] .logout-button:hover {
+[data-theme='dark'] .logout-button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -132,9 +137,23 @@
   .user-details {
     display: none;
   }
-  
+
   .login-button.user-info {
     padding: 4px;
   }
 }
 
+
+.button-text-mobile {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .button-text-desktop {
+    display: none;
+  }
+
+  .button-text-mobile {
+    display: block;
+  }
+}

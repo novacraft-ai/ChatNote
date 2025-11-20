@@ -13,7 +13,7 @@ interface AuthContextType {
   user: User | null
   loading: boolean
   login: (credential: string) => Promise<void>
-  logout: () => void
+  logout: () => Promise<void>
   isAuthenticated: boolean
   isAdmin: boolean
 }
@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchUser = async (token: string, retryCount = 0) => {
     const MAX_RETRIES = 2
     let shouldSetLoading = false
-    
+
     try {
       // Add timeout to prevent hanging
       const controller = new AbortController()
@@ -125,12 +125,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user)
     } catch (error) {
       console.error('Login error:', error)
+      console.error('Failed URL:', `${BACKEND_URL}/api/auth/google`)
       throw error
     }
   }
 
-  const logout = () => {
+  const logout = async () => {
+    const token = localStorage.getItem('auth_token')
+
+    // Revoke Drive authorization on backend if token exists
+    if (token) {
+      try {
+        // Call backend to revoke Drive access
+        await fetch(`${BACKEND_URL}/api/drive/revoke`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(() => {
+          // Ignore errors - user is logging out anyway
+        })
+      } catch (error) {
+        // Ignore errors during logout
+        console.warn('Error revoking Drive access during logout:', error)
+      }
+    }
+
+    // Clear local storage
     localStorage.removeItem('auth_token')
+
+    // Clear PDF history cache
+    try {
+      localStorage.removeItem('chatnote_pdf_history_cache')
+    } catch (error) {
+      console.warn('Failed to clear PDF history cache:', error)
+    }
+
     setUser(null)
   }
 

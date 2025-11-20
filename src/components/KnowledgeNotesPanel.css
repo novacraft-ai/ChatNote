@@ -4,26 +4,27 @@
   height: 100%;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
-  border-left: 1px solid rgba(0, 0, 0, 0.1);
+  border-left: 1px solid rgba(0, 0, 0, 0.1); /* Changed to border-left */
   transition: all 0.3s ease;
   overflow: hidden; /* Hide overflow - notes scroll with PDF */
 }
 
 .knowledge-notes-panel.theme-dark {
   background: rgba(32, 33, 35, 0.95);
-  border-left-color: rgba(255, 255, 255, 0.1);
+  border-left-color: rgba(255, 255, 255, 0.1); /* Changed to border-left-color */
 }
 
 .knowledge-notes-panel.floating-layout {
-  position: absolute;
-  top: 0;
-  right: 0;
+  position: fixed;
+  top: 60px; /* Below navbar */
+  right: 0; /* Right side of viewport */
+  bottom: 0;
+  left: auto;
   width: 350px;
-  height: 100%;
-  z-index: 100;
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.1);
+  height: calc(100vh - 60px);
+  z-index: 10005; /* Higher than chat (10010 when expanded) to ensure visibility */
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.1); /* Shadow to the left */
   overflow: hidden; /* Hide overflow - notes will scroll with PDF */
-  /* Ensure it's positioned relative to main-content */
 }
 
 /* Ensure drawer is always on top when visible on narrow screens */
@@ -37,7 +38,8 @@
   width: 350px;
   flex-shrink: 0;
   height: 100%;
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1); /* Shadow to the left */
+  position: relative; /* Ensure proper positioning in flex layout */
 }
 
 /* Responsive design: Convert to drawer overlay on narrow screens */
@@ -46,7 +48,8 @@
   .knowledge-notes-panel.floating-layout {
     position: fixed;
     top: 60px; /* Below navbar */
-    right: -370px; /* Hidden off-screen by default */
+    right: -370px; /* Hidden off-screen by default (right side) */
+    left: auto;
     width: min(350px, 85vw); /* Responsive width, max 350px */
     height: calc(100vh - 60px);
     z-index: 10010; /* Well above backdrop (1000), chat (1000), and other elements */
@@ -64,7 +67,8 @@
   .knowledge-notes-panel.split-layout {
     position: fixed;
     top: 60px; /* Below navbar */
-    right: -370px; /* Hidden off-screen by default */
+    right: -370px; /* Hidden off-screen by default (right side) */
+    left: auto;
     width: min(350px, 85vw); /* Responsive width, max 350px */
     height: calc(100vh - 60px);
     z-index: 10010; /* Well above backdrop (1000), chat (1000), and other elements */
@@ -457,7 +461,7 @@
 
 .knowledge-notes-list.stack-mode {
   overflow-y: auto; /* Allow scrolling in stack mode */
-  padding: 8px 0; /* Add padding for stacked notes */
+  padding: 8px 0 60px 0; /* Add bottom padding to prevent last card from being cut off */
 }
 
 .empty-notes {

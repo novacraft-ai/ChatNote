@@ -60,7 +60,7 @@ export const CLASSIFICATION_MODELS = [
 export const DEFAULT_GROQ_MODEL = AUTO_MODELS[0]
 
 // Backend API URL (your Railway/Render backend URL)
-export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000'
+export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:3000'
 export const API_PROXY_URL = `${BACKEND_URL}/api/chat`
 
 // Google OAuth Client ID

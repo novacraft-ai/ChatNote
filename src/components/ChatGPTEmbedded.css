@@ -21,7 +21,11 @@
   height: auto;
   border-radius: 8px;
   overflow: hidden;
-  transition: max-height 0.3s ease, color 0.3s;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
+              color 0.3s ease,
+              background 0.3s ease,
+              border-radius 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.3s ease;
   position: relative;
   width: 100%;
   background: rgba(0, 0, 0, 0.3);
@@ -50,6 +54,10 @@
   height: 100%;
   border-radius: 0;
   overflow: visible;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
+              background 0.3s ease,
+              border-radius 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.3s ease;
 }
 
 .split-chat .chatgpt-wrapper {
@@ -2553,9 +2561,24 @@
 }
 
 .theme-light .input-wrapper:focus-within {
+  /* Default: green, will be overridden by dynamic class */
   border-color: rgba(16, 163, 127, 0.6);
   box-shadow: 0 4px 20px rgba(16, 163, 127, 0.2);
   background: transparent;
+
+}
+
+.theme-light .input-wrapper.focus-auto {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.2) !important;
+}
+.theme-light .input-wrapper.focus-reasoning {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.2) !important;
+}
+.theme-light .input-wrapper.focus-advanced {
+  border-color: #10a37f !important;
+  box-shadow: 0 4px 20px rgba(16, 163, 127, 0.2) !important;
 }
 
 /* Split layout - Input wrapper colors */
@@ -2571,6 +2594,21 @@
   box-shadow: 0 2px 12px rgba(16, 163, 127, 0.15);
 }
 
+.split-chat .theme-light .input-wrapper.focus-auto {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.15) !important;
+}
+
+.split-chat .theme-light .input-wrapper.focus-reasoning {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.15) !important;
+}
+
+.split-chat .theme-light .input-wrapper.focus-advanced {
+  border-color: #10a37f !important;
+  box-shadow: 0 2px 12px rgba(16, 163, 127, 0.15) !important;
+}
+
 .split-chat .theme-dark .input-wrapper {
   background: rgba(64, 65, 79, 0.8);
   border-color: rgba(86, 88, 105, 0.8);
@@ -2583,6 +2621,21 @@
   box-shadow: 0 2px 12px rgba(16, 163, 127, 0.3);
 }
 
+.split-chat .theme-dark .input-wrapper.focus-auto {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.3) !important;
+}
+
+.split-chat .theme-dark .input-wrapper.focus-reasoning {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 2px 12px rgba(139, 92, 246, 0.3) !important;
+}
+
+.split-chat .theme-dark .input-wrapper.focus-advanced {
+  border-color: #10a37f !important;
+  box-shadow: 0 2px 12px rgba(16, 163, 127, 0.3) !important;
+}
+
 .theme-dark .input-wrapper {
   background: transparent;
   border-color: rgba(86, 88, 105, 0.5);
@@ -2590,9 +2643,23 @@
 }
 
 .theme-dark .input-wrapper:focus-within {
+  /* Default: green, will be overridden by dynamic class */
   border-color: rgba(16, 163, 127, 0.6);
   box-shadow: 0 4px 20px rgba(16, 163, 127, 0.3);
   background: transparent;
+}
+
+.theme-dark .input-wrapper.focus-auto {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3) !important;
+}
+.theme-dark .input-wrapper.focus-reasoning {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.3) !important;
+}
+.theme-dark .input-wrapper.focus-advanced {
+  border-color: #10a37f !important;
+  box-shadow: 0 4px 20px rgba(16, 163, 127, 0.3) !important;
 }
 
 .chatgpt-input {

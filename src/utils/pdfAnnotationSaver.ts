@@ -88,7 +88,7 @@ async function loadUnicodeFont(): Promise<ArrayBuffer | null> {
         }
       }
     } catch (localError) {
-      console.debug('Local font file not found, trying CDN:', localError)
+      // Continue to CDN sources if local font fails
     }
     
     // Try CDN URLs
@@ -118,16 +118,13 @@ async function loadUnicodeFont(): Promise<ArrayBuffer | null> {
               uint8Array[2] === 0x46 && uint8Array[3] === 0x32
               
             if (isTTF || isWOFF || isWOFF2) {
-              console.log(`Successfully loaded Unicode font from CDN (${isTTF ? 'TTF' : isWOFF ? 'WOFF' : 'WOFF2'})`)
               return arrayBuffer
             } else {
-              console.debug(`File from ${url} doesn't appear to be a font file`)
               continue
             }
           }
         }
       } catch (e) {
-        console.debug(`Failed to load font from ${url}:`, e)
         continue
       }
     }
@@ -247,27 +244,15 @@ export async function saveAnnotatedPDF(
       if (!page) continue
       
       // Get actual PDF page size from pdf-lib (this is the true base size)
-      const pdfPageSize = page.getSize()
-      const pdfPageWidth = pdfPageSize.width
-      const pdfPageHeight = pdfPageSize.height
+      // Removed unused: const pdfPageSize = page.getSize()
+      // Removed unused: const pdfPageWidth = pdfPageSize.width
+      // Removed unused: const pdfPageHeight = pdfPageSize.height
       
       const pageDims = pageDimensions.get(annotation.pageNumber)
       if (!pageDims) continue
-      
       const { width: pageWidth, height: pageHeight } = pageDims
       
-      console.log(`[PDF Save] Page ${annotation.pageNumber} dimensions comparison:`, {
-        storedWidth: pageWidth,
-        storedHeight: pageHeight,
-        actualPdfWidth: pdfPageWidth,
-        actualPdfHeight: pdfPageHeight,
-        widthMatch: Math.abs(pageWidth - pdfPageWidth) < 0.1,
-        heightMatch: Math.abs(pageHeight - pdfPageHeight) < 0.1,
-        widthDiff: pageWidth - pdfPageWidth,
-        heightDiff: pageHeight - pdfPageHeight,
-      })
-      
-      // Convert relative coordinates (0-1) to PDF coordinates
+      // Calculate normalized coordinates for PDF-lib
       // Web uses top-left origin, PDF uses bottom-left origin
       let pdfWidth = annotation.width * pageWidth
       let pdfHeight = annotation.height * pageHeight
@@ -275,27 +260,6 @@ export async function saveAnnotatedPDF(
       // For text boxes, recalculate height based on actual content at base scale (1.0)
       // This ensures the saved height matches the content, regardless of zoom level when created
       // The recalculation will be done in the text box rendering section below
-      
-      const pdfX = annotation.x * pageWidth
-      const pdfY = annotation.y * pageHeight
-      
-      console.log(`[PDF Save] Annotation on page ${annotation.pageNumber}:`, {
-        annotationType: annotation.type,
-        relativeX: annotation.x,
-        relativeY: annotation.y,
-        relativeWidth: annotation.width,
-        relativeHeight: annotation.height,
-        pageWidth,
-        pageHeight,
-        pdfWidth,
-        pdfHeight,
-        pdfX,
-        pdfY,
-        // For text boxes, also log the actual drawing positions
-        ...(annotation.type === 'textbox' ? {
-          textBoxInfo: 'See detailed text box logging below',
-        } : {}),
-      })
       
       if (annotation.type === 'textbox') {
         const textAnnotation = annotation as TextBoxAnnotation
@@ -327,31 +291,6 @@ export async function saveAnnotatedPDF(
         // Convert web top coordinate to PDF
         const webTopY = annotation.y * pageHeight // Top of text box in web coordinates (points)
         let webBottomY = (annotation.y + annotation.height) * pageHeight // Bottom of text box (will be recalculated for text boxes)
-        
-        console.log(`[PDF Save] Text Box Details for page ${annotation.pageNumber}:`, {
-          relativeX: annotation.x,
-          relativeY: annotation.y,
-          relativeWidth: annotation.width,
-          relativeHeight: annotation.height,
-          pageWidth,
-          pageHeight,
-          webLeftX,
-          webTopY,
-          webBottomY,
-          pdfWidth,
-          pdfHeight,
-          // Calculate what the original click position would have been (for verification)
-          // If relativeX was calculated as: pageRelativeX / (baseWidth * scale)
-          // Then: pageRelativeX = relativeX * baseWidth * scale
-          // At the scale when created, this would be the pixel position
-          // But in base coordinates (what we save): pdfX = relativeX * baseWidth
-          savedPdfX: webLeftX,
-          savedPdfY: webBottomY, // Bottom of text box
-          savedPdfTopY: webTopY, // Top of text box
-          // Text box container dimensions in PDF points
-          containerPdfWidth: pdfWidth,
-          containerPdfHeight: pdfHeight,
-        })
         
         // Padding constant (used throughout text box rendering)
         const padding = 4 // Base padding in points (matches web preview)
@@ -400,18 +339,6 @@ export async function saveAnnotatedPDF(
             textWidth = singleLine.length * textAnnotation.fontSize * 0.5
           }
           
-          console.log(`[PDF Save] Text Wrapping Check for page ${annotation.pageNumber}:`, {
-            text: singleLine,
-            textLength: singleLine.length,
-            fontSize: textAnnotation.fontSize,
-            textWidth,
-            maxWidth,
-            contentWidth,
-            containerPdfWidth: pdfWidth,
-            padding,
-            needsWrapping: textWidth > maxWidth,
-          })
-          
           // If text is wider than available width, wrap it
           if (textWidth > maxWidth) {
             const wrappedLines: string[] = []
@@ -447,12 +374,6 @@ export async function saveAnnotatedPDF(
             }
             
             if (wrappedLines.length > 1) {
-              console.log(`[PDF Save] Text wrapped from 1 line to ${wrappedLines.length} lines:`, {
-                originalText: singleLine,
-                wrappedLines,
-                maxWidth,
-                textWidth,
-              })
               validLines = wrappedLines
             }
           }
@@ -477,20 +398,6 @@ export async function saveAnnotatedPDF(
         // Recalculate webBottomY based on the new pdfHeight
         // webTopY remains the same (based on annotation.y), but webBottomY needs to be updated
         const recalculatedWebBottomY = webTopY + pdfHeight
-        
-        console.log(`[PDF Save] Final text lines for page ${annotation.pageNumber}:`, {
-          lineCount: validLines.length,
-          lines: validLines,
-          storedRelativeHeight: annotation.height,
-          storedPdfHeight: annotation.height * pageHeight,
-          actualContentHeight,
-          recalculatedPdfHeight: pdfHeight,
-          webTopY,
-          originalWebBottomY: webBottomY,
-          recalculatedWebBottomY,
-          fontSize: textAnnotation.fontSize,
-          lineHeight,
-        })
         
         // Update webBottomY for use in PDF coordinate calculations
         webBottomY = recalculatedWebBottomY
@@ -520,17 +427,6 @@ export async function saveAnnotatedPDF(
         const minY = textAnnotation.fontSize * 0.2 // Keep some margin from top
         const maxY = pageHeight - textAnnotation.fontSize * 0.2 // Keep some margin from bottom
         const finalPdfY = Math.max(minY, Math.min(maxY, pdfY))
-        
-        console.log(`[PDF Save] Text positioning for page ${annotation.pageNumber}:`, {
-          webTopY,
-          webBottomY,
-          pdfTopY,
-          pdfBottomY,
-          textBoxHeight,
-          textCenterY,
-          finalPdfY,
-          actualContentHeight: pdfHeight,
-        })
         
         // Check if we have multiple lines (even if some are empty)
         // Also check if the raw text contains newline characters (even if split results in 1 line)
@@ -740,10 +636,17 @@ export async function saveAnnotatedPDF(
         let image
         
         // Determine image type and embed
+        // pdf-lib only supports PNG and JPEG formats
         if (imageAnnotation.imageData.startsWith('data:image/png')) {
           image = await pdfDoc.embedPng(imageBytes)
-        } else {
+        } else if (imageAnnotation.imageData.startsWith('data:image/jpeg') || 
+                   imageAnnotation.imageData.startsWith('data:image/jpg')) {
           image = await pdfDoc.embedJpg(imageBytes)
+        } else {
+          // For any other format (SVG, WebP, etc.), this shouldn't happen
+          // as we convert them to PNG during upload, but handle it just in case
+          console.error('Unsupported image format for PDF embedding:', imageAnnotation.imageData.substring(0, 30))
+          throw new Error('Unsupported image format. Only PNG and JPEG are supported for PDF embedding.')
         }
         
         // Calculate image dimensions maintaining aspect ratio

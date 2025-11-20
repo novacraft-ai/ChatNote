@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
+import { preprocessMathContent } from '../utils/markdownUtils'
 import { KnowledgeNote } from '../types/knowledgeNotes'
 import './KnowledgeNotesPanel.css'
 
@@ -31,12 +37,14 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
 }) => {
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   const notesListRef = useRef<HTMLDivElement>(null)
+  const lastScrollHeightRef = useRef<number>(0)
   const [pdfContentHeight, setPdfContentHeight] = useState<number>(0)
   const [notePositions, setNotePositions] = useState<Map<string, number>>(new Map())
   const [displayMode, setDisplayMode] = useState<'following' | 'stack'>('following')
   const [showConfirmDialog, setShowConfirmDialog] = useState<boolean>(false)
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null)
   const [frontNoteId, setFrontNoteId] = useState<string | null>(null) // Track which note is brought to front
+  const isCalculatingRef = useRef(false)
 
   // Handle Escape key to close confirmation dialog
   useEffect(() => {
@@ -79,20 +87,24 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
       }
       return (window as any).__pdfContentRef || null
     }
-
+    
     const updateHeight = () => {
       const pdfContent = getPdfContentRef()
       if (pdfContent && notesListRef.current) {
         // Set the notes list height to match PDF content scroll height (only in following mode)
         // This allows notes to be positioned at the same Y coordinates as PDF content
         const scrollHeight = pdfContent.scrollHeight
-        setPdfContentHeight(scrollHeight)
+        // Only update state if height actually changed to prevent infinite loops
+        if (lastScrollHeightRef.current !== scrollHeight) {
+          lastScrollHeightRef.current = scrollHeight
+          setPdfContentHeight(scrollHeight)
+        }
         if (displayMode === 'following') {
           notesListRef.current.style.height = `${scrollHeight}px`
         } else {
           notesListRef.current.style.height = 'auto'
         }
-        
+
         // Sync scroll position: move notes list to match PDF scroll (only in following mode)
         // Since notes are absolutely positioned, we use transform to move them
         if (displayMode === 'following') {
@@ -165,8 +177,12 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
 
   // Calculate note positions for all notes
   const calculateNotePositions = useCallback(() => {
+    if (isCalculatingRef.current) return
+    isCalculatingRef.current = true
+    
     const pdfContent = pdfContentRef?.current || (window as any).__pdfContentRef
     if (!pdfContent) {
+      isCalculatingRef.current = false
       return
     }
 
@@ -185,7 +201,7 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
         if (pageElements.length < note.pageNumber) return
         const pageElement = pageElements[note.pageNumber - 1] as HTMLElement
         if (!pageElement) return
-        
+
         const pageTop = pageElement.offsetTop
         const pageHeight = pageElement.offsetHeight
         const absoluteY = pageTop + (note.textYPosition * pageHeight)
@@ -195,27 +211,33 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
 
       const pageWrapper = pageWrappers[note.pageNumber - 1] as HTMLElement
       if (!pageWrapper) return
-      
+
       // Calculate absolute position relative to PDF content container
       const pageTop = pageWrapper.offsetTop
       const pageHeight = pageWrapper.offsetHeight
-      
+
       // Calculate the Y position of the text within the page
       const textYInPage = note.textYPosition * pageHeight
-      
+
       // Absolute Y position = page top + text Y within page
       const absoluteY = pageTop + textYInPage
-      
+
       newPositions.set(note.id, absoluteY)
     })
 
     setNotePositions(newPositions)
+    // Use setTimeout to reset flag after state update completes
+    setTimeout(() => {
+      isCalculatingRef.current = false
+    }, 0)
   }, [notes, pdfContentRef])
 
   // Recalculate positions when PDF content changes
   useEffect(() => {
-    calculateNotePositions()
+    if (!isVisible) return
     
+    calculateNotePositions()
+
     const pdfContent = pdfContentRef?.current || (window as any).__pdfContentRef
     if (pdfContent) {
       // Recalculate when PDF content is resized (zoom, pages load, etc.)
@@ -259,7 +281,7 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
       // Front note was deleted, clear it
       setFrontNoteId(null)
     }
-    
+
     // If no front note is set and there are notes, don't auto-set one
     // This ensures new notes appear at the back (highest displayIndex)
   }, [notes, frontNoteId])
@@ -301,12 +323,12 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
       if (frontNoteIndex !== -1) {
         // Rotate: front note becomes index 0, others shift
         // But ensure newer notes (higher originalStackIndex) are always at the back
-        
+
         // Count how many notes are newer than this note
-        const newerNotesCount = samePositionNotes.filter((_, idx) => 
+        const newerNotesCount = samePositionNotes.filter((_, idx) =>
           idx > originalStackIndex
         ).length
-        
+
         if (originalStackIndex > frontNoteIndex) {
           // This note is newer than the front note
           // Place it at the back: stackSize - 1 - (number of notes newer than this)
@@ -317,7 +339,7 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
           // Use rotation formula, but ensure it doesn't conflict with newer notes at the back
           const baseDisplayIndex = (originalStackIndex - frontNoteIndex + stackSize) % stackSize
           // Count notes newer than front note
-          const newerThanFrontCount = samePositionNotes.filter((_, idx) => 
+          const newerThanFrontCount = samePositionNotes.filter((_, idx) =>
             idx > frontNoteIndex
           ).length
           // Older notes should be in positions 0 to (stackSize - 1 - newerThanFrontCount)
@@ -428,10 +450,10 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
           </button>
         </div>
       </div>
-      <div 
-        className={`knowledge-notes-list ${displayMode === 'stack' ? 'stack-mode' : 'following-mode'}`} 
-        ref={notesListRef} 
-        style={{ 
+      <div
+        className={`knowledge-notes-list ${displayMode === 'stack' ? 'stack-mode' : 'following-mode'}`}
+        ref={notesListRef}
+        style={{
           height: displayMode === 'following' && pdfContentHeight > 0 ? `${pdfContentHeight}px` : 'auto',
           overflow: displayMode === 'stack' ? 'auto' : 'visible'
         }}
@@ -448,37 +470,38 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
 
             const isFrontNote = frontNoteId === note.id
             const stackInfo = getNoteStackInfo(note, notes)
-            
+
             // Calculate stacking offsets (like Apple Wallet cards)
             const stackOffset = 8 // Vertical offset per card
             const rotationOffset = 1.5 // Rotation in degrees per card
             const horizontalOffset = 2 // Horizontal offset per card
-            
+
             // Use displayIndex for visual positioning (rotated based on front note)
             // displayIndex 0 is the front card (no offset/rotation)
             // displayIndex 1, 2, 3... are behind with increasing offsets
             // Newest cards (highest originalStackIndex) should have the most clockwise rotation
             const verticalOffset = stackInfo.displayIndex * stackOffset
             const horizontalShift = stackInfo.displayIndex * horizontalOffset
-            
+
             // Calculate rotation: cards further back get more clockwise rotation
             // The newest card (highest originalStackIndex) should always have maximum rotation
             const maxDisplayIndex = stackInfo.stackSize - 1
             const isNewestCard = stackInfo.stackIndex === stackInfo.stackSize - 1
             const maxRotation = maxDisplayIndex * rotationOffset
-            
+
             // If this is the newest card, it should have maximum clockwise rotation
             // Otherwise, use rotation based on displayIndex
             const rotation = isNewestCard ? maxRotation : stackInfo.displayIndex * rotationOffset
-            
+
             // Front note (displayIndex 0) should be on top with no rotation/offset
-            const finalTop = notePosition !== undefined 
+            const finalTop = notePosition !== undefined
               ? (stackInfo.displayIndex === 0 ? notePosition : notePosition + verticalOffset)
               : undefined
+            
             // Apply rotation: front card has no rotation, newest card has maximum clockwise rotation
             const finalRotation = stackInfo.displayIndex === 0 ? 0 : rotation
             const finalHorizontalShift = stackInfo.displayIndex === 0 ? 0 : horizontalShift
-            
+
             return (
               <div
                 key={note.id}
@@ -489,6 +512,10 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
                   if (target.closest('button') || target.closest('.note-linked-text')) {
                     return
                   }
+                  // Trigger navigation
+                  handleNoteClick(note)
+                  onNoteClick?.(note)
+
                   // Rotate the stack: bring clicked note to front (rotation effect)
                   if (displayMode === 'following' && stackInfo.stackSize > 1) {
                     // If clicking a note that's not already in front, rotate it to front
@@ -499,10 +526,10 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
                       const samePositionNotes = notes.filter((n) => {
                         const pos = getNotePosition(n)
                         const notePos = getNotePosition(note)
-                        return pos !== undefined && notePos !== undefined && 
-                               Math.abs(pos - notePos) < 10
+                        return pos !== undefined && notePos !== undefined &&
+                          Math.abs(pos - notePos) < 10
                       }).sort((a, b) => a.createdAt - b.createdAt)
-                      
+
                       const currentIndex = samePositionNotes.findIndex((n) => n.id === note.id)
                       const nextIndex = (currentIndex + 1) % samePositionNotes.length
                       setFrontNoteId(samePositionNotes[nextIndex].id)
@@ -513,29 +540,29 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
                   }
                 }}
                 style={
-                  displayMode === 'following' && finalTop !== undefined 
-                    ? { 
-                        position: 'absolute', 
-                        top: `${finalTop}px`, 
-                        left: `${8 + finalHorizontalShift}px`, 
-                        right: `${8 - finalHorizontalShift}px`, 
-                        width: 'auto', 
-                        zIndex: stackInfo.displayIndex === 0 ? 20 + stackInfo.stackSize : 10 + stackInfo.displayIndex, // Front note (displayIndex 0) gets highest z-index
-                        pointerEvents: 'auto', // Ensure notes are clickable
-                        transform: `rotate(${finalRotation}deg)`,
-                        transformOrigin: 'center top',
-                        transition: 'transform 0.3s ease, z-index 0.2s ease, top 0.3s ease, left 0.3s ease, right 0.3s ease',
-                        boxShadow: stackInfo.displayIndex === 0 
-                          ? '0 4px 16px rgba(0, 0, 0, 0.15)' 
-                          : `0 ${2 + stackInfo.displayIndex}px ${8 + stackInfo.displayIndex * 2}px rgba(0, 0, 0, ${0.1 + stackInfo.displayIndex * 0.02})`
-                      } 
-                    : { 
-                        position: 'relative',
-                        marginBottom: '12px', // Add spacing for notes
-                        marginLeft: '8px',
-                        marginRight: '8px',
-                        width: 'auto'
-                      }
+                  displayMode === 'following' && finalTop !== undefined
+                    ? {
+                      position: 'absolute',
+                      top: `${finalTop}px`,
+                      left: `${8 + finalHorizontalShift}px`,
+                      right: `${8 - finalHorizontalShift}px`,
+                      width: 'auto',
+                      zIndex: stackInfo.displayIndex === 0 ? 20 + stackInfo.stackSize : 10 + stackInfo.displayIndex, // Front note (displayIndex 0) gets highest z-index
+                      pointerEvents: 'auto', // Ensure notes are clickable
+                      transform: `rotate(${finalRotation}deg)`,
+                      transformOrigin: 'center top',
+                      transition: 'transform 0.3s ease, z-index 0.2s ease, top 0.3s ease, left 0.3s ease, right 0.3s ease',
+                      boxShadow: stackInfo.displayIndex === 0
+                        ? '0 4px 16px rgba(0, 0, 0, 0.15)'
+                        : `0 ${2 + stackInfo.displayIndex}px ${8 + stackInfo.displayIndex * 2}px rgba(0, 0, 0, ${0.1 + stackInfo.displayIndex * 0.02})`
+                    }
+                    : {
+                      position: 'relative',
+                      marginBottom: '12px', // Add spacing for notes
+                      marginLeft: '8px',
+                      marginRight: '8px',
+                      width: 'auto'
+                    }
                 }
               >
                 <div className="note-header">
@@ -569,10 +596,31 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
                   </div>
                 )}
                 <div className="note-content-wrapper">
-                  <div 
+                  <div
                     className={`note-content ${isExpanded ? 'expanded' : 'collapsed'}`}
                   >
-                    {note.content}
+                    {/* Render markdown content */}
+                    <div className="markdown-content">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[[rehypeKatex, {
+                          strict: false,
+                          throwOnError: false,
+                          errorColor: '#cc0000',
+                          macros: {},
+                          fleqn: false,
+                          output: 'html',
+                          trust: false,
+                        }]]}
+                        components={{
+                          // Custom components to ensure consistent styling with Chat
+                          p: ({ children }) => <p style={{ marginBottom: '0.5em' }}>{children}</p>,
+                          a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{children}</a>
+                        }}
+                      >
+                        {preprocessMathContent(note.content)}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                   {needsExpand && (
                     <button

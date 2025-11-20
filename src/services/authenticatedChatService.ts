@@ -164,7 +164,6 @@ function sanitizeErrorMessage(error: any, status: number): string {
   }
   
   // For other errors, provide a generic message
-  // Log the actual error for debugging but don't expose it to users
   const errorMessage = typeof error?.error === 'string' 
     ? error.error 
     : error?.error?.message || error?.message || ''

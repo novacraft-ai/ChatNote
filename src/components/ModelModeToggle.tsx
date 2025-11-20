@@ -17,6 +17,7 @@ export default function ModelModeToggle({
   const [isDragging, setIsDragging] = useState(false)
   const [dragStartX, setDragStartX] = useState(0)
   const [hasMoved, setHasMoved] = useState(false)
+  const [showTooltip, setShowTooltip] = useState(false)
   const toggleRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLDivElement>(null)
 
@@ -25,6 +26,11 @@ export default function ModelModeToggle({
     auto: 'Auto',
     reasoning: 'Reasoning',
     advanced: 'Advanced'
+  }
+  const modeDescriptions = {
+    auto: 'ChatNote will choose the best model automatically - best for daily use',
+    reasoning: 'Uses advanced reasoning models for complex problems with thinking process',
+    advanced: 'Most capable model for challenging tasks that need real-time information (limited usage)'
   }
 
   // Calculate button position based on mode
@@ -154,6 +160,32 @@ export default function ModelModeToggle({
         </div>
       </div>
       <div className="model-mode-toggle-label">{modeLabels[mode]}</div>
+      <div 
+        className="model-mode-info-icon-wrapper"
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+      >
+        <svg 
+          className="model-mode-info-icon" 
+          width="14" 
+          height="14" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+        {showTooltip && (
+          <div className="model-mode-tooltip">
+            {modeDescriptions[mode]}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

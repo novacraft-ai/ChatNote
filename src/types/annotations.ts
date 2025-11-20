@@ -1,4 +1,4 @@
-export type AnnotationType = 'textbox' | 'image'
+export type AnnotationType = 'textbox' | 'image' | 'highlight'
 
 export interface BaseAnnotation {
   id: string
@@ -25,7 +25,13 @@ export interface ImageAnnotation extends BaseAnnotation {
   imageHeight: number // Original image height
 }
 
-export type Annotation = TextBoxAnnotation | ImageAnnotation
+export interface HighlightAnnotation extends BaseAnnotation {
+  type: 'highlight'
+  color: string
+  opacity?: number
+}
+
+export type Annotation = TextBoxAnnotation | ImageAnnotation | HighlightAnnotation
 
 export const COMMON_COLORS = [
   '#000000', // Black

@@ -9,34 +9,36 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
+import { preprocessMathContent } from '../utils/markdownUtils'
 import './ChatGPTEmbedded.css'
+import chatNoteIcon from '../assets/chatnote-icon.svg'
 
 /**
  * Extract keywords from user question for relevance matching
  */
 function extractKeywords(text: string): string[] {
   if (!text) return []
-  
+
   // Remove common stop words and extract meaningful words
   const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom', 'whose', 'where', 'when', 'why', 'how', 'about', 'tell', 'me', 'please', 'help', 'does', 'mention', 'any', 'pdf'])
-  
+
   const textLower = text.toLowerCase()
-  
+
   // First, extract important multi-word phrases (2-3 words)
   const phrases: string[] = []
   const words = textLower
     .replace(/[^\w\s]/g, ' ') // Remove punctuation
     .split(/\s+/)
     .filter(word => word.length > 2 && !stopWords.has(word))
-  
+
   // Extract 2-word phrases (e.g., "data distribution", "geolocation features")
   for (let i = 0; i < words.length - 1; i++) {
     const phrase = `${words[i]} ${words[i + 1]}`
     if (words[i].length > 3 && words[i + 1].length > 3) {
       phrases.push(phrase)
-}
+    }
   }
-  
+
   // Extract 3-word phrases for important concepts
   for (let i = 0; i < words.length - 2; i++) {
     const phrase = `${words[i]} ${words[i + 1]} ${words[i + 2]}`
@@ -44,10 +46,10 @@ function extractKeywords(text: string): string[] {
       phrases.push(phrase)
     }
   }
-  
+
   // Combine phrases and individual words, prioritizing phrases
   const allKeywords = [...phrases, ...words]
-  
+
   // Return unique keywords, prioritizing longer phrases/words
   return [...new Set(allKeywords)].sort((a, b) => b.length - a.length)
 }
@@ -57,7 +59,7 @@ function extractKeywords(text: string): string[] {
  */
 function expandQuery(keywords: string[]): string[] {
   const expanded = new Set<string>(keywords)
-  
+
   // Add synonyms for common terms
   const synonymMap: Record<string, string[]> = {
     'distribution': ['spread', 'scatter', 'allocation', 'dispersion', 'arrangement'],
@@ -68,19 +70,19 @@ function expandQuery(keywords: string[]): string[] {
     'result': ['finding', 'outcome', 'conclusion', 'summary', 'finding'],
     'analysis': ['evaluation', 'examination', 'study', 'investigation', 'assessment']
   }
-  
-    for (const keyword of keywords) {
-      const keywordLower = keyword.toLowerCase()
+
+  for (const keyword of keywords) {
+    const keywordLower = keyword.toLowerCase()
     // Add the keyword itself
     expanded.add(keywordLower)
-    
+
     // Add synonyms
     for (const [term, synonyms] of Object.entries(synonymMap)) {
       if (keywordLower.includes(term) || term.includes(keywordLower)) {
         synonyms.forEach(syn => expanded.add(syn))
       }
     }
-    
+
     // Add stemmed variations (simple stemming)
     if (keywordLower.endsWith('s')) {
       expanded.add(keywordLower.slice(0, -1)) // Remove 's'
@@ -92,7 +94,7 @@ function expandQuery(keywords: string[]): string[] {
       expanded.add(keywordLower.slice(0, -3)) // Remove 'ing'
     }
   }
-  
+
   return Array.from(expanded)
 }
 
@@ -102,27 +104,27 @@ function expandQuery(keywords: string[]): string[] {
  */
 function searchPDFByKeywords(pdfText: string, keywords: string[], maxChars: number): string {
   if (!pdfText || keywords.length === 0) return pdfText
-  
+
   const contextWindow = 800 // Characters before and after each match
   const matches: Array<{ start: number; end: number; score: number }> = []
-  
+
   // Find all occurrences of each keyword
   for (const keyword of keywords) {
     const keywordLower = keyword.toLowerCase()
     const regex = new RegExp(keywordLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
     let match
-    
+
     while ((match = regex.exec(pdfText)) !== null) {
       const matchStart = match.index
       const matchEnd = match.index + match[0].length
-      
+
       // Extract context around the match
       const contextStart = Math.max(0, matchStart - contextWindow)
       const contextEnd = Math.min(pdfText.length, matchEnd + contextWindow)
-      
+
       // Calculate score based on keyword importance (longer keywords = more important)
       const score = keyword.length > 4 ? 3 : 2
-      
+
       matches.push({
         start: contextStart,
         end: contextEnd,
@@ -130,15 +132,15 @@ function searchPDFByKeywords(pdfText: string, keywords: string[], maxChars: numb
       })
     }
   }
-  
+
   if (matches.length === 0) {
     // No matches found, return beginning + end
     return truncateText(pdfText, Math.floor(maxChars / 4))
   }
-  
+
   // Sort by position to merge overlapping matches
   matches.sort((a, b) => a.start - b.start)
-  
+
   // Merge overlapping matches
   const merged: Array<{ start: number; end: number; score: number }> = []
   for (const match of matches) {
@@ -158,20 +160,20 @@ function searchPDFByKeywords(pdfText: string, keywords: string[], maxChars: numb
       merged.push(match)
     }
   }
-  
+
   // Sort by score (most relevant first)
   merged.sort((a, b) => b.score - a.score)
-  
+
   // Extract text from merged matches
   let result = ''
   let usedChars = 0
-  
+
   for (const match of merged) {
     if (usedChars >= maxChars * 0.9) break // Leave 10% buffer
-    
+
     const matchText = pdfText.substring(match.start, match.end)
     const matchSize = matchText.length
-    
+
     if (usedChars + matchSize <= maxChars) {
       // Add separator if not first match
       if (result) {
@@ -191,7 +193,7 @@ function searchPDFByKeywords(pdfText: string, keywords: string[], maxChars: numb
       break
     }
   }
-  
+
   // If we have space, add beginning and end for context
   const remainingSpace = maxChars - usedChars
   if (remainingSpace > 500 && result) {
@@ -199,13 +201,13 @@ function searchPDFByKeywords(pdfText: string, keywords: string[], maxChars: numb
     const endSize = Math.min(remainingSpace * 0.2, 300)
     const beginning = pdfText.substring(0, beginningSize)
     const end = pdfText.substring(Math.max(0, pdfText.length - endSize))
-    
+
     result = `[Document Introduction]\n${beginning}\n\n---\n\n[Relevant Sections]\n${result}\n\n---\n\n[Document Conclusion]\n${end}`
   } else if (!result) {
     // Fallback: if no matches, return beginning + end
     return truncateText(pdfText, Math.floor(maxChars / 4))
   }
-  
+
   return result
 }
 
@@ -215,14 +217,14 @@ function searchPDFByKeywords(pdfText: string, keywords: string[], maxChars: numb
  * Falls back to keyword search if embeddings unavailable
  */
 async function extractRelevantPDFContext(
-  pdfText: string, 
-  userQuestion: string, 
+  pdfText: string,
+  userQuestion: string,
   maxTokens: number
 ): Promise<string> {
   if (!pdfText) return pdfText
   const maxChars = maxTokens * 4 // Convert tokens to approximate characters
   if (pdfText.length <= maxChars) return pdfText
-  
+
   // Try RAG approach first (uses free embedding services - no API key required!)
   try {
     // Check for optional API keys (for better embedding quality)
@@ -235,21 +237,21 @@ async function extractRelevantPDFContext(
   } catch (error) {
     // Fallback to keyword search on error
   }
-  
+
   // Fallback: Use keyword-based search
   const keywords = extractKeywords(userQuestion)
   const expandedKeywords = expandQuery(keywords)
-  
+
   if (expandedKeywords.length === 0) {
     return truncateText(pdfText, maxTokens)
   }
-  
+
   const searchResult = searchPDFByKeywords(pdfText, expandedKeywords, maxChars)
-  
+
   if (searchResult && searchResult.length > 100) {
     return searchResult
   }
-  
+
   return truncateText(pdfText, maxTokens)
 }
 
@@ -263,40 +265,40 @@ function truncateText(text: string, maxTokens: number): string {
   if (!text) return text
   const maxChars = maxTokens * 4 // Convert tokens to approximate characters
   if (text.length <= maxChars) return text
-  
+
   // Strategy: Keep beginning + end (important for papers where conclusions are at the end)
   // Allocate 60% to beginning, 40% to end to ensure conclusions aren't lost
   const beginningSize = Math.floor(maxChars * 0.6)
   const endSize = Math.floor(maxChars * 0.4)
-  
+
   const beginning = text.substring(0, beginningSize)
   const end = text.substring(Math.max(0, text.length - endSize))
-  
+
   // Try to truncate beginning at sentence boundary
   let beginningText = beginning
   const lastPeriod = beginning.lastIndexOf('.')
   const lastNewline = beginning.lastIndexOf('\n')
   const lastBoundary = Math.max(lastPeriod, lastNewline)
-  
+
   if (lastBoundary > beginningSize * 0.7) {
     // If we found a boundary in the last 30%, use it
     beginningText = beginning.substring(0, lastBoundary + 1)
-    } else {
+  } else {
     // Otherwise truncate at word boundary
     const lastSpace = beginning.lastIndexOf(' ')
     if (lastSpace > beginningSize * 0.8) {
       beginningText = beginning.substring(0, lastSpace)
     }
   }
-  
+
   // Try to start end at sentence boundary
   let endText = end
   const firstPeriod = end.indexOf('.')
   const firstNewline = end.indexOf('\n')
-  const firstBoundary = firstPeriod !== -1 && firstNewline !== -1 
+  const firstBoundary = firstPeriod !== -1 && firstNewline !== -1
     ? Math.min(firstPeriod, firstNewline)
     : (firstPeriod !== -1 ? firstPeriod : firstNewline)
-  
+
   if (firstBoundary !== -1 && firstBoundary < endSize * 0.3) {
     // If we found a boundary in the first 30%, start from there
     endText = end.substring(firstBoundary + 1)
@@ -307,10 +309,10 @@ function truncateText(text: string, maxTokens: number): string {
       endText = end.substring(firstSpace + 1)
     }
   }
-  
+
   // Combine beginning and end with a clear separator
   const result = beginningText + '\n\n[... middle content truncated ...]\n\n' + endText
-  
+
   // Final check: if still too long, trim proportionally
   if (result.length > maxChars) {
     const excess = result.length - maxChars
@@ -324,7 +326,7 @@ function truncateText(text: string, maxTokens: number): string {
     const newBeginning = beginningText.substring(0, beginningText.length - trimFromBeginning)
     return newBeginning + separator + endText
   }
-  
+
   return result
 }
 
@@ -345,23 +347,23 @@ function estimateTokens(text: string): number {
  */
 function estimateConversationTokens(messages: ChatMessage[], context?: string): number {
   let total = 0
-  
+
   // Add context tokens
   if (context) {
     total += estimateTokens(context)
   }
-  
+
   // Add message tokens (each message has overhead)
   for (const msg of messages) {
-    const content = typeof msg.content === 'string' 
-      ? msg.content 
-      : (Array.isArray(msg.content) 
-          ? msg.content.find(item => item.type === 'text')?.text || '' 
-          : '')
+    const content = typeof msg.content === 'string'
+      ? msg.content
+      : (Array.isArray(msg.content)
+        ? msg.content.find(item => item.type === 'text')?.text || ''
+        : '')
     total += estimateTokens(content)
     total += 4 // Message overhead (role, formatting, etc.)
   }
-  
+
   return total
 }
 
@@ -373,21 +375,21 @@ interface QuestionClassification {
   needsPdfContext: boolean        // Is this about the PDF?
   needsChatHistory: boolean       // Is this a follow-up question?
   needsFullContext: boolean       // Does it need both PDF + history?
-  
+
   // Answer complexity
   answerComplexity: 'quick' | 'detailed' | 'reasoning'  // How complex is the answer?
-  
+
   // Question characteristics
   isClarification: boolean        // "What do you mean by X?"
   isFollowUp: boolean            // References previous messages
   isDefinition: boolean          // "What is X?"
   isCalculation: boolean        // Math/formula questions
   isComparison: boolean         // "Compare X and Y"
-  
+
   // Confidence scores (0-1)
   pdfRelevanceScore: number      // How relevant to PDF? (0-1)
   historyRelevanceScore: number   // How relevant to chat history? (0-1)
-  
+
   // Classification metadata
   classificationMethod: 'rule-based' | 'llm'  // How was this classified?
   confidence: number              // Overall confidence (0-1)
@@ -402,11 +404,11 @@ interface RoutingDecision {
   pdfContextTokens: number        // 0, 500, 1000, 2000
   includeChatHistory: boolean
   chatHistoryDepth: number        // 0, 1, 2, 5
-  
+
   // Conversation management
   summarizeOldMessages: boolean
   recentMessagesCount: number
-  
+
   // Model hints (optional)
   preferQuickModel: boolean       // Use faster model for quick answers
   needsReasoning: boolean         // Needs reasoning model
@@ -422,14 +424,14 @@ function classifyQuestionRules(
 ): QuestionClassification {
   const q = question.toLowerCase().trim()
   const hasHistory = chatHistory.length > 0
-  
+
   // Quick question patterns
   const quickPatterns = [
     /^(what|who|when|where|which)\s+(is|are|was|were)\s+\w{1,30}\?*$/i,  // Simple definitions
     /^(yes|no|ok|thanks|thank you|got it)/i,                              // Acknowledgments
     /^(explain|define|tell me about)\s+\w{1,20}$/i,                       // Simple requests
   ]
-  
+
   // Follow-up indicators
   const followUpPatterns = [
     /^(it|that|this|they|those|these)/i,                                  // Pronouns
@@ -437,7 +439,7 @@ function classifyQuestionRules(
     /^(what about|how about|can you|could you|would you)/i,               // Requests
     /^(can you|could you|would you)\s+(also|please|again)/i,             // Polite requests
   ]
-  
+
   // PDF indicators - improved patterns to catch PDF-related questions
   const pdfPatterns = [
     /(pdf|document|text|chapter|section|page|according to|in the|from the)/i,
@@ -449,14 +451,14 @@ function classifyQuestionRules(
     /(describe.*pdf|describe.*document|describe.*text)/i,
     /(this pdf|the pdf|this document|the document)/i,  // Direct references
   ]
-  
+
   // Complex question patterns
   const complexPatterns = [
     /(why|how|explain|analyze|compare|contrast|evaluate|discuss)/i,
     /(calculate|solve|derive|prove|show|demonstrate)/i,
     /(relationship|connection|difference|similarity|correlation)/i,
   ]
-  
+
   // Classification logic
   const isQuick = quickPatterns.some(pattern => pattern.test(q))
   const isFollowUp = hasHistory && followUpPatterns.some(pattern => pattern.test(q))
@@ -466,10 +468,10 @@ function classifyQuestionRules(
   const isCalculation = /(calculate|solve|compute|formula|equation|math)/i.test(q)
   const isComparison = /(compare|contrast|difference|similar|versus|vs)/i.test(q)
   const isClarification = /(what do you mean|clarify|explain.*again|repeat)/i.test(q)
-  
+
   // Check if question asks about content (needed for PDF relevance calculation)
   const asksAboutContent = /(what is|what's|what are|tell me about|summarize|explain|describe).*(about|say|contain|discuss)/i.test(q)
-  
+
   // Calculate relevance scores
   let pdfRelevanceScore = 0
   if (hasPdfIndicators) {
@@ -485,17 +487,17 @@ function classifyQuestionRules(
     // Low relevance as fallback
     pdfRelevanceScore = 0.2
   }
-  
+
   let historyRelevanceScore = 0
   if (isFollowUp) historyRelevanceScore = 0.9
   else if (hasHistory && (isClarification || /^(it|that|this)/i.test(q))) historyRelevanceScore = 0.7
   else if (hasHistory) historyRelevanceScore = 0.2  // Low relevance if history exists but not clearly referenced
-  
+
   // Determine answer complexity
   let answerComplexity: 'quick' | 'detailed' | 'reasoning' = 'detailed'
   if (isQuick || isDefinition) answerComplexity = 'quick'
   else if (isComplex || isCalculation || isComparison) answerComplexity = 'reasoning'
-  
+
   // Determine context needs
   // PDF context is needed if:
   // 1. Has PDF indicators (explicit references to PDF/document)
@@ -509,7 +511,7 @@ function classifyQuestionRules(
   )
   const needsChatHistory = hasHistory && (isFollowUp || isClarification || historyRelevanceScore > 0.5)
   const needsFullContext = needsPdfContext && needsChatHistory
-  
+
   return {
     needsPdfContext,
     needsChatHistory,
@@ -537,7 +539,7 @@ async function classifyQuestionLLM(
   authToken: string
 ): Promise<QuestionClassification> {
   const hasHistory = chatHistory.length > 0
-  
+
   // Build context for classification
   const getLastMessageText = (msg: ChatMessage): string => {
     if (typeof msg.content === 'string') return msg.content
@@ -547,13 +549,13 @@ async function classifyQuestionLLM(
     }
     return ''
   }
-  
-  const historyContext = hasHistory 
+
+  const historyContext = hasHistory
     ? `Previous conversation has ${chatHistory.length} messages. Last user message: "${getLastMessageText(chatHistory[chatHistory.length - 1]).substring(0, 100)}"`
     : 'No previous conversation history.'
-  
+
   const pdfContext = hasPdf ? 'A PDF document is available as context.' : 'No PDF document is available.'
-  
+
   // Classification schema for structured outputs
   const classificationSchema = {
     type: 'object',
@@ -578,7 +580,7 @@ async function classifyQuestionLLM(
     ],
     additionalProperties: false
   }
-  
+
   // Try classification models with fallback
   for (const model of CLASSIFICATION_MODELS) {
     try {
@@ -620,14 +622,14 @@ Output your classification as JSON matching the provided schema.`
           }
         })
       })
-      
+
       if (!response.ok) {
         continue
       }
-      
+
       const data = await response.json()
       const classification = JSON.parse(data.choices[0]?.message?.content || '{}')
-      
+
       return {
         ...classification,
         classificationMethod: 'llm',
@@ -637,7 +639,7 @@ Output your classification as JSON matching the provided schema.`
       continue
     }
   }
-  
+
   // Fallback to rule-based if all LLM attempts fail
   return classifyQuestionRules(question, chatHistory, hasPdf)
 }
@@ -653,12 +655,12 @@ async function classifyQuestion(
 ): Promise<QuestionClassification> {
   // First, try rule-based classification (fast, no API calls)
   const ruleBased = classifyQuestionRules(question, chatHistory, hasPdf)
-  
+
   // If rule-based has high confidence, use it
   if (ruleBased.confidence >= 0.85) {
     return ruleBased
   }
-  
+
   // For ambiguous cases, use LLM classification
   try {
     return await classifyQuestionLLM(question, chatHistory, hasPdf, authToken)
@@ -676,17 +678,17 @@ function routeQuestion(
   chatHistoryLength: number
 ): RoutingDecision {
   const isReasoningMode = modelMode === 'reasoning'
-  
+
   // Decision tree based on classification
   // IMPORTANT: Check PDF needs FIRST, even for quick questions
   // Quick questions about PDFs still need PDF context (just with fewer tokens)
-  
+
   if (classification.needsPdfContext && !classification.needsChatHistory) {
     // PDF-only question
     // Even "quick" questions about PDFs need substantial context to answer properly
     // The question being simple doesn't mean we can skimp on PDF context
     // Always include at least 2 previous messages for context, even if not explicitly needed
-    const pdfTokens = classification.answerComplexity === 'quick' 
+    const pdfTokens = classification.answerComplexity === 'quick'
       ? (isReasoningMode ? 1500 : 2000)  // Quick PDF questions: still need good context
       : (classification.answerComplexity === 'detailed' && !isReasoningMode ? 2000 : 1500)
     const minHistoryCount = 2 // Always include at least 2 messages
@@ -701,7 +703,7 @@ function routeQuestion(
       needsReasoning: classification.answerComplexity === 'reasoning'
     }
   }
-  
+
   if (classification.needsChatHistory && !classification.needsPdfContext) {
     // History-only question
     const historyDepth = classification.isFollowUp ? 2 : (isReasoningMode ? 2 : 5)
@@ -716,7 +718,7 @@ function routeQuestion(
       needsReasoning: classification.answerComplexity === 'reasoning'
     }
   }
-  
+
   // Quick questions without PDF or history needs
   // Still include at least 2 previous messages for context
   if (classification.answerComplexity === 'quick' && !classification.needsPdfContext && !classification.needsChatHistory) {
@@ -732,22 +734,22 @@ function routeQuestion(
       needsReasoning: false
     }
   }
-  
+
   // Default: balanced approach (both PDF and history, or complex questions)
   // For questions that need both PDF and history, allocate tokens appropriately
   // If PDF is needed, ensure adequate context even for quick questions
   const pdfTokens = classification.needsPdfContext
     ? (classification.answerComplexity === 'quick'
-        ? (isReasoningMode ? 1200 : 1500)  // Quick questions with PDF: still need good context
-        : (isReasoningMode ? 1500 : (classification.answerComplexity === 'detailed' ? 2000 : 1500)))
+      ? (isReasoningMode ? 1200 : 1500)  // Quick questions with PDF: still need good context
+      : (isReasoningMode ? 1500 : (classification.answerComplexity === 'detailed' ? 2000 : 1500)))
     : 0
-  
+
   // When needsChatHistory is True, include more messages
   // When needsChatHistory is False, still include at least 2 messages for context
   const historyDepth = classification.needsChatHistory
     ? (isReasoningMode ? 2 : (classification.isFollowUp ? 2 : 5))  // More messages when explicitly needed
     : 2  // Minimum 2 messages even when not explicitly needed
-  
+
   return {
     includePdfContext: classification.needsPdfContext,
     pdfContextTokens: pdfTokens,
@@ -771,48 +773,48 @@ function summarizeOldMessages(oldMessages: ChatMessage[], isReasoningMode: boole
   if (oldMessages.length === 0) {
     return { role: 'system', content: '' }
   }
-  
+
   // Extract key information from old messages in a compact format
   const summaryParts: string[] = []
-  
+
   // More aggressive truncation for reasoning mode
   const userTruncateLength = isReasoningMode ? 50 : 80
   const assistantTruncateLength = isReasoningMode ? 80 : 120
-  
+
   // Group messages into conversation pairs for better context
   for (let i = 0; i < oldMessages.length; i += 2) {
     const userMsg = oldMessages[i]
     const assistantMsg = oldMessages[i + 1]
-    
+
     if (userMsg && userMsg.role === 'user') {
-      const userContent = typeof userMsg.content === 'string' ? userMsg.content : 
+      const userContent = typeof userMsg.content === 'string' ? userMsg.content :
         (Array.isArray(userMsg.content) ? userMsg.content.find(item => item.type === 'text')?.text || '' : '')
       if (userContent.trim()) {
         // Truncate to first N chars for user messages
-        const truncated = userContent.length > userTruncateLength 
-          ? userContent.substring(0, userTruncateLength) + '...' 
+        const truncated = userContent.length > userTruncateLength
+          ? userContent.substring(0, userTruncateLength) + '...'
           : userContent
         summaryParts.push(`Q: ${truncated}`)
       }
     }
-    
+
     if (assistantMsg && assistantMsg.role === 'assistant') {
-      const assistantContent = typeof assistantMsg.content === 'string' ? assistantMsg.content : 
+      const assistantContent = typeof assistantMsg.content === 'string' ? assistantMsg.content :
         (Array.isArray(assistantMsg.content) ? assistantMsg.content.find(item => item.type === 'text')?.text || '' : '')
       if (assistantContent.trim()) {
         // Truncate to first N chars for assistant messages
-        const truncated = assistantContent.length > assistantTruncateLength 
-          ? assistantContent.substring(0, assistantTruncateLength) + '...' 
+        const truncated = assistantContent.length > assistantTruncateLength
+          ? assistantContent.substring(0, assistantTruncateLength) + '...'
           : assistantContent
         summaryParts.push(`A: ${truncated}`)
       }
     }
   }
-  
+
   // Create compact summary - even more compact for reasoning mode
   const prefix = isReasoningMode ? `[Prev (${oldMessages.length})]` : `[Previous conversation (${oldMessages.length} msgs)]`
   const summary = `${prefix}:\n${summaryParts.join('\n')}`
-  
+
   return {
     role: 'system',
     content: summary
@@ -863,13 +865,13 @@ function removeInstructions(content: string | Array<{ type: string; text?: strin
  */
 function extractThinking(content: string): { thinking: string | null; mainContent: string } {
   if (!content) return { thinking: null, mainContent: content }
-  
+
   // First, check for the new format with __REASONING_START__ markers
   const reasoningStartMarker = '__REASONING_START__'
   const reasoningEndMarker = '__REASONING_END__'
   const startIndex = content.indexOf(reasoningStartMarker)
   const endIndex = content.indexOf(reasoningEndMarker)
-  
+
   if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
     // Extract reasoning from the markers
     const thinkingStart = startIndex + reasoningStartMarker.length
@@ -877,804 +879,29 @@ function extractThinking(content: string): { thinking: string | null; mainConten
     const mainContent = content.substring(endIndex + reasoningEndMarker.length).trim()
     return { thinking: thinking || null, mainContent }
   }
-  
+
   // Fallback to legacy format: <think> tags
   const firstOpenTag = content.indexOf('<think>')
   const lastCloseTag = content.lastIndexOf('</think>')
-  
+
   // If we don't have both tags, return original content
   if (firstOpenTag === -1 || lastCloseTag === -1 || lastCloseTag <= firstOpenTag) {
     return { thinking: null, mainContent: content }
   }
-  
+
   // Extract thinking content between first opening tag and last closing tag
   const thinkingStart = firstOpenTag + '<think>'.length
   const thinking = content.substring(thinkingStart, lastCloseTag).trim()
-  
+
   // Remove the entire thinking block from main content
   // Remove from first opening tag to last closing tag (including the closing tag)
   const beforeThinking = content.substring(0, firstOpenTag)
   const afterThinking = content.substring(lastCloseTag + '</think>'.length)
   const mainContent = (beforeThinking + afterThinking).trim()
-  
+
   return { thinking: thinking || null, mainContent }
 }
 
-/**
- * Preprocess markdown content to clean Unicode and wrap unwrapped math expressions
- */
-function preprocessMathContent(content: string): string {
-  if (!content || typeof content !== 'string') {
-    return ''
-  }
-  
-  // Note: Logging is handled in the message rendering section to avoid duplicate logs during streaming
-  
-  // Step 1: Clean Unicode spaces and problematic characters
-  // Replace various Unicode spaces with regular space
-  let cleaned = content.replace(/[\u2000-\u200B\u202F\u205F\u3000]/g, ' ')
-  
-  // Replace non-breaking hyphen (U+2011) with regular hyphen for KaTeX compatibility
-  // This must happen BEFORE protecting math expressions so it normalizes inside math too
-  cleaned = cleaned.replace(/\u2011/g, '-')
-  
-  // Also normalize in HTML content (e.g., <br>, <strong>, etc.)
-  cleaned = cleaned.replace(/(<[^>]*>)([^<]*)(<\/[^>]*>)/g, (match, openTag, content, closeTag) => {
-    const normalizedContent = content.replace(/\u2011/g, '-')
-    return normalizedContent !== content ? openTag + normalizedContent + closeTag : match
-  })
-  
-  // Replace en-dash (8211) and em-dash (8212) with regular hyphens for LaTeX compatibility
-  cleaned = cleaned.replace(/[\u2013\u2014]/g, '-')
-  // Replace other problematic Unicode characters that KaTeX doesn't recognize
-  cleaned = cleaned.replace(/[\u2018\u2019]/g, "'") // Left/right single quotation marks
-  cleaned = cleaned.replace(/[\u201C\u201D]/g, '"') // Left/right double quotation marks
-  cleaned = cleaned.replace(/\n{4,}/g, '\n\n\n')
-  
-  // Step 2: Normalize problematic characters INSIDE math expressions before protecting them
-  // This ensures math expressions are clean before they're passed to KaTeX
-  cleaned = cleaned.replace(/\$\$[\s\S]*?\$\$/g, (match) => {
-    // Normalize non-breaking hyphen and other problematic chars inside block math
-    return match.replace(/\u2011/g, '-').replace(/[\u2013\u2014]/g, '-')
-  })
-  
-  cleaned = cleaned.replace(/\$[^$\n]+?\$/g, (match) => {
-    // Normalize non-breaking hyphen and other problematic chars inside inline math
-    return match.replace(/\u2011/g, '-').replace(/[\u2013\u2014]/g, '-')
-  })
-  
-  // Step 3: Protect already-wrapped math expressions using placeholders
-  const protectedMath: string[] = []
-  const mathPlaceholder = (index: number) => `__MATH_PLACEHOLDER_${index}__`
-  
-  // Protect block math ($$...$$) - this is what the model will use per the prompt
-  cleaned = cleaned.replace(/\$\$[\s\S]*?\$\$/g, (match) => {
-    // Normalize thousand separators inside protected math: convert {,} to comma
-    const normalized = match.replace(/(\d+)\{,\}(\d+)/g, '$1,$2')
-    protectedMath.push(normalized)
-    return mathPlaceholder(protectedMath.length - 1)
-  })
-  
-  // Protect inline math in both formats:
-  // 1. \(...\) - what the model will use per the prompt (remark-math supports this directly)
-  // 2. $...$ - legacy format, also supported
-  // We'll keep \(...\) as-is since remark-math supports it, but convert to $...$ for consistency
-  cleaned = cleaned.replace(/\\\(([\s\S]*?)\\\)/g, (_match, content) => {
-    // Normalize problematic characters in LaTeX math content
-    let normalizedContent = content.replace(/\u2011/g, '-').replace(/[\u2013\u2014]/g, '-')
-    // Also normalize thousand separators inside math: convert {,} to comma
-    normalizedContent = normalizedContent.replace(/(\d+)\{,\}(\d+)/g, '$1,$2')
-    // Convert to $...$ format for consistency (remark-math supports both, but $...$ is more common)
-    const converted = `$${normalizedContent}$`
-    protectedMath.push(converted)
-    return mathPlaceholder(protectedMath.length - 1)
-  })
-  
-  // Protect inline math ($...$)
-  cleaned = cleaned.replace(/\$[^$\n]+?\$/g, (match) => {
-    // Normalize thousand separators inside protected math: convert {,} to comma
-    const normalized = match.replace(/(\d+)\{,\}(\d+)/g, '$1,$2')
-    protectedMath.push(normalized)
-    return mathPlaceholder(protectedMath.length - 1)
-  })
-  
-  // Convert LaTeX display math (\[...\]) to $$...$$ format for remark-math compatibility
-  // Note: Model should use $$...$$ per prompt, but we keep this for legacy/fallback
-  // IMPORTANT: Normalize thousand separators {,} to , inside these blocks
-  cleaned = cleaned.replace(/\\\[([\s\S]*?)\\\]/g, (_match, content) => {
-    // Normalize problematic characters in LaTeX math content
-    let normalizedContent = content.replace(/\u2011/g, '-').replace(/[\u2013\u2014]/g, '-')
-    // Also normalize thousand separators inside math: convert {,} to comma
-    normalizedContent = normalizedContent.replace(/(\d+)\{,\}(\d+)/g, '$1,$2')
-    const converted = `$$${normalizedContent}$$`
-    protectedMath.push(converted)
-    return mathPlaceholder(protectedMath.length - 1)
-  })
-  
-  // Step 3: Find and wrap parenthesized expressions that contain LaTeX
-  const parenthesizedMatches: Array<{ match: string; index: number }> = []
-  const parenthesizedRegex = /\(([^()]*?(?:[\\_^]|\\[a-zA-Z@]+\{[^}]*\}|\\pm|\\sim|\\times|\\div|\\sqrt|\\frac|\\text\{|\\approx|\\leq|\\geq|\\neq|\\sum|\\int|\\prod|=\s*\\[a-zA-Z@]+|~\s*\\[a-zA-Z@]+)[^()]*?)\)/g
-  let match
-  
-  while ((match = parenthesizedRegex.exec(cleaned)) !== null) {
-    const fullMatch = match[0]
-    const matchIndex = match.index
-    
-    // Check if already wrapped or in protected area
-    const charBefore = matchIndex > 0 ? cleaned[matchIndex - 1] : ''
-    const charAfter = matchIndex + fullMatch.length < cleaned.length ? cleaned[matchIndex + fullMatch.length] : ''
-    
-    if (charBefore === '$' && charAfter === '$') continue
-    if (cleaned.substring(Math.max(0, matchIndex - 2), matchIndex).includes('](')) continue
-    if (charBefore === '`' || charAfter === '`') continue
-    if (cleaned.substring(Math.max(0, matchIndex - 10), matchIndex + fullMatch.length + 10).includes('__MATH_PLACEHOLDER')) continue
-    
-    parenthesizedMatches.push({ match: fullMatch, index: matchIndex })
-  }
-  
-  // Step 4: Find complete math expressions (not just in parentheses)
-  const expressionMatches: Array<{ match: string; index: number }> = []
-  const expressionRegex = /\\[a-zA-Z@]+(?:_[a-zA-Z0-9{}]+|\^[a-zA-Z0-9{}]+)?\s*[~±≤≥≠≈=]\s*[^.,;:!?\n]{5,150}?(?=\s|$|[.,;:!?]|\\[a-zA-Z@]|_[a-zA-Z0-9]|\^[a-zA-Z0-9])/g
-  
-  let exprMatch
-  while ((exprMatch = expressionRegex.exec(cleaned)) !== null) {
-    const matchIndex = exprMatch.index
-    let matchStr = exprMatch[0]
-    
-    const operatorIndex = Math.max(
-      matchStr.indexOf('~'),
-      matchStr.indexOf('='),
-      matchStr.indexOf('±'),
-      matchStr.indexOf('≤'),
-      matchStr.indexOf('≥'),
-      matchStr.indexOf('≠'),
-      matchStr.indexOf('≈')
-    )
-    if (operatorIndex === -1 || operatorIndex === matchStr.length - 1) {
-      continue
-    }
-    const afterOperator = matchStr.substring(operatorIndex + 1)
-    if (!/\\[a-zA-Z@]+|_[a-zA-Z0-9{}]|\^[a-zA-Z0-9{}]/.test(afterOperator)) {
-      continue
-    }
-    
-    const sentenceEnd = /[.,;:!?]/.exec(matchStr)
-    if (sentenceEnd && sentenceEnd.index > 10 && sentenceEnd.index < matchStr.length - 5) {
-      matchStr = matchStr.substring(0, sentenceEnd.index + 1)
-    }
-    
-    const charBefore = matchIndex > 0 ? cleaned[matchIndex - 1] : ''
-    const charAfter = matchIndex + matchStr.length < cleaned.length ? cleaned[matchIndex + matchStr.length] : ''
-    
-    if (charBefore === '$' || charAfter === '$') continue
-    if (charBefore === '`' || charAfter === '`') continue
-    if (cleaned.substring(Math.max(0, matchIndex - 10), matchIndex + matchStr.length + 10).includes('__MATH_PLACEHOLDER')) continue
-    
-    const isInParentheses = parenthesizedMatches.some(m => {
-      const mStart = m.index
-      const mEnd = mStart + m.match.length
-      return matchIndex >= mStart && matchIndex + matchStr.length <= mEnd
-    })
-    
-    if (!isInParentheses && matchStr.length > 10) {
-      expressionMatches.push({ match: matchStr, index: matchIndex })
-    }
-  }
-  
-  // Step 5: Find complex math expressions with nested braces
-  const complexMatches: Array<{ match: string; index: number }> = []
-  
-  const findBalancedBraces = (str: string, startIndex: number): number => {
-    let depth = 0
-    let i = startIndex
-    while (i < str.length) {
-      if (str[i] === '{') depth++
-      else if (str[i] === '}') {
-        depth--
-        if (depth === 0) return i + 1
-      }
-      i++
-    }
-    return -1
-  }
-  
-  const sqrtWithIndexRegex = /\\sqrt\[[^\]]+\](?=\{)/g
-  let sqrtMatch
-  while ((sqrtMatch = sqrtWithIndexRegex.exec(cleaned)) !== null) {
-    const matchIndex = sqrtMatch.index
-    const afterCommand = matchIndex + sqrtMatch[0].length
-    
-    if (cleaned[afterCommand] === '{') {
-      const braceEnd = findBalancedBraces(cleaned, afterCommand)
-      if (braceEnd !== -1) {
-        const fullMatch = cleaned.substring(matchIndex, braceEnd)
-        const charBefore = matchIndex > 0 ? cleaned[matchIndex - 1] : ''
-        const charAfter = braceEnd < cleaned.length ? cleaned[braceEnd] : ''
-        
-        if (charBefore !== '$' && charAfter !== '$' && 
-            !cleaned.substring(Math.max(0, matchIndex - 10), braceEnd + 10).includes('__MATH_PLACEHOLDER')) {
-          complexMatches.push({ match: fullMatch, index: matchIndex })
-        }
-      }
-    }
-  }
-  
-  const complexRegex = /\\(sqrt|frac|text|overline|underline)(?=\{)/g
-  let complexMatch
-  while ((complexMatch = complexRegex.exec(cleaned)) !== null) {
-    const matchIndex = complexMatch.index
-    const command = complexMatch[1]
-    const afterCommand = matchIndex + complexMatch[0].length
-    
-    if (cleaned[afterCommand] !== '{') continue
-    
-    if (command === 'frac') {
-      const firstBraceEnd = findBalancedBraces(cleaned, afterCommand)
-      if (firstBraceEnd === -1) continue
-      if (cleaned[firstBraceEnd] !== '{') continue
-      const secondBraceEnd = findBalancedBraces(cleaned, firstBraceEnd)
-      if (secondBraceEnd === -1) continue
-      const fullMatch = cleaned.substring(matchIndex, secondBraceEnd)
-      
-      const charBefore = matchIndex > 0 ? cleaned[matchIndex - 1] : ''
-      const charAfter = secondBraceEnd < cleaned.length ? cleaned[secondBraceEnd] : ''
-      
-      if (charBefore !== '$' && charAfter !== '$' && 
-          !cleaned.substring(Math.max(0, matchIndex - 10), secondBraceEnd + 10).includes('__MATH_PLACEHOLDER')) {
-        complexMatches.push({ match: fullMatch, index: matchIndex })
-      }
-    } else {
-      const braceEnd = findBalancedBraces(cleaned, afterCommand)
-      if (braceEnd === -1) continue
-      const fullMatch = cleaned.substring(matchIndex, braceEnd)
-      
-      const charBefore = matchIndex > 0 ? cleaned[matchIndex - 1] : ''
-      const charAfter = braceEnd < cleaned.length ? cleaned[braceEnd] : ''
-      
-      if (charBefore !== '$' && charAfter !== '$' && 
-          !cleaned.substring(Math.max(0, matchIndex - 10), braceEnd + 10).includes('__MATH_PLACEHOLDER')) {
-        const isAlreadyMatched = parenthesizedMatches.some(m => {
-          const mStart = m.index
-          const mEnd = mStart + m.match.length
-          return matchIndex >= mStart && braceEnd <= mEnd
-        }) || expressionMatches.some(m => {
-          const mStart = m.index
-          const mEnd = mStart + m.match.length
-          return matchIndex >= mStart && braceEnd <= mEnd
-        })
-        
-        if (!isAlreadyMatched) {
-          complexMatches.push({ match: fullMatch, index: matchIndex })
-        }
-      }
-    }
-  }
-  
-  // Step 6a: Find and wrap thousand separator patterns
-  // Handle multiple formats: {,} (e.g., 42{,}000), spaces (e.g., 40 000), and commas (e.g., 1,000)
-  // First, normalize space-separated numbers to comma-separated for consistency
-  // Pattern: $40 000 or 40 000 (with space as thousand separator)
-  // Match: 1-3 digits, followed by one or more groups of space + 3 digits, with word boundary
-  cleaned = cleaned.replace(/(\$?\s*)(\d{1,3}(?:\s+\d{3})+)(\b)/g, (_match, prefix, numberPart, suffix) => {
-    // Convert space-separated to comma-separated: "40 000" -> "40,000"
-    const normalized = numberPart.replace(/\s+/g, ',')
-    // If it's a dollar amount, wrap it in math delimiters
-    if (prefix.trim().startsWith('$')) {
-      return `$${normalized}$${suffix}`
-    }
-    // Otherwise, just normalize the spaces to commas (will be wrapped later if needed)
-    return prefix + normalized + suffix
-  })
-  
-  // Also handle dollar amounts with regular commas that aren't wrapped yet
-  // Pattern: $1,000 (not already in math delimiters)
-  // Match $ followed by comma-separated number, but not if already wrapped in $$
-  // IMPORTANT: Only match if NOT already wrapped (i.e., not followed by $)
-  cleaned = cleaned.replace(/\$(\d{1,3}(?:,\d{3})+)(?![$])/g, (_match, numberPart, offset, string) => {
-    // Check if the $ before is not part of $$ (already wrapped)
-    const charBefore = offset > 0 ? string[offset - 1] : ''
-    if (charBefore === '$') {
-      // Already wrapped in $$, don't modify
-      return _match
-    }
-    // Check if already wrapped (has $ after the number)
-    const matchEnd = offset + _match.length
-    if (matchEnd < string.length && string[matchEnd] === '$') {
-      // Already wrapped, don't modify
-      return _match
-    }
-    // Wrap the dollar amount in math delimiters, preserving any space after
-    const charAfter = matchEnd < string.length ? string[matchEnd] : ''
-    // If there's a space or punctuation after, preserve it
-    if (charAfter === ' ' || /[.,;:!?)]/.test(charAfter)) {
-      return `$${numberPart}$${charAfter}`
-    }
-    // Otherwise, just wrap it
-    return `$${numberPart}$`
-  })
-  
-  // Step 6b: Find and wrap {,} patterns (e.g., 42{,}000, $42{,}000, [42{,}000], \40{,}000)
-  const thousandSeparatorRegex = /(\d+)\{,\}(\d+)/g
-  const thousandSeparatorMatches: Array<{ numberPart: string; fullMatch: string; startIndex: number; endIndex: number; prefix: string; suffix: string }> = []
-  
-  let thousandMatch
-  while ((thousandMatch = thousandSeparatorRegex.exec(cleaned)) !== null) {
-    const numberPart = `${thousandMatch[1]}{,}${thousandMatch[2]}`
-    const matchStart = thousandMatch.index
-    const matchEnd = matchStart + thousandMatch[0].length
-    
-    // Check if already inside math delimiters
-    // Support: $...$, $$...$$, \(...\), \[...\]
-    // Use full string context to catch all cases, not just limited window
-    const beforeContext = cleaned.substring(0, matchStart)
-    const afterContext = cleaned.substring(matchEnd)
-    
-    // Check for \(...\) (LaTeX inline math)
-    const lastInlineMathStart = beforeContext.lastIndexOf('\\(')
-    const firstInlineMathEnd = afterContext.indexOf('\\)')
-    if (lastInlineMathStart !== -1 && firstInlineMathEnd !== -1) {
-      // Check if there's no closing \) between the start and our match
-      const betweenStartAndMatch = cleaned.substring(lastInlineMathStart + 2, matchStart)
-      if (!betweenStartAndMatch.includes('\\)')) {
-        continue // We're inside \(...\)
-      }
-    }
-    
-    // Check if in protected area (math placeholders) - do this first for efficiency
-    if (cleaned.substring(Math.max(0, matchStart - 10), matchEnd + 10).includes('__MATH_PLACEHOLDER')) continue
-    
-    // Check for \[...\] (LaTeX display math) - check BEFORE $ checks since \[ gets converted to $$
-    const lastBracketMathStart = beforeContext.lastIndexOf('\\[')
-    const firstBracketMathEnd = afterContext.indexOf('\\]')
-    if (lastBracketMathStart !== -1 && firstBracketMathEnd !== -1) {
-      // Check if there's no closing \] between the start and our match
-      const betweenStartAndMatch = cleaned.substring(lastBracketMathStart + 2, matchStart)
-      if (!betweenStartAndMatch.includes('\\]')) {
-        // We're inside \[...\] - these will be normalized during protection/restoration
-        continue // Skip this match - it's inside a math block
-      }
-    }
-    
-    // Check for $$...$$ (block math) - these should have been protected, but check anyway
-    // Note: \[...\] blocks get converted to $$...$$ during protection, so check for both
-    const lastDoubleDollarBefore = beforeContext.lastIndexOf('$$')
-    const firstDoubleDollarAfter = afterContext.indexOf('$$')
-    if (lastDoubleDollarBefore !== -1 && firstDoubleDollarAfter !== -1) {
-      // Check if there's no closing $$ between the start and our match
-      const betweenStartAndMatch = cleaned.substring(lastDoubleDollarBefore + 2, matchStart)
-      if (!betweenStartAndMatch.includes('$$')) {
-        // We're inside $$...$$ - skip wrapping (should have been normalized during protection)
-        continue
-      }
-    }
-    
-    // Check for $...$ (inline math, not $$)
-    const lastDollarBefore = beforeContext.lastIndexOf('$')
-    const firstDollarAfter = afterContext.indexOf('$')
-    if (lastDollarBefore !== -1 && firstDollarAfter !== -1) {
-      const charBeforeDollar = lastDollarBefore > 0 ? beforeContext[lastDollarBefore - 1] : ''
-      const charAfterDollar = firstDollarAfter < afterContext.length - 1 ? afterContext[firstDollarAfter + 1] : ''
-      // Not $$ if the $ before is not preceded by $, and the $ after is not followed by $
-      if (charBeforeDollar !== '$' && charAfterDollar !== '$') {
-        // Check if there's no closing $ between the start and our match
-        const betweenStartAndMatch = cleaned.substring(lastDollarBefore + 1, matchStart)
-        const dollarCount = (betweenStartAndMatch.match(/\$/g) || []).length
-        // If odd number of $ signs between start and match, we're inside math
-        if (dollarCount % 2 === 0) {
-          continue // We're inside $...$
-        }
-      }
-    }
-    
-    // Look for context around the number (backslash, brackets, dollar signs, parentheses)
-    let contextStart = matchStart
-    let contextEnd = matchEnd
-    let prefix = ''
-    let suffix = ''
-    
-    // First, check if we're inside brackets by looking for [ before and ] after
-    let bracketStart = -1
-    let bracketEnd = -1
-    for (let i = matchStart; i >= Math.max(0, matchStart - 200); i--) {
-      if (cleaned[i] === '[') {
-        bracketStart = i
-        break
-      } else if (cleaned[i] === ']') {
-        // Found closing bracket before opening, not inside brackets
-        break
-      }
-    }
-    if (bracketStart !== -1) {
-      for (let i = matchEnd; i < Math.min(cleaned.length, matchEnd + 200); i++) {
-        if (cleaned[i] === ']') {
-          bracketEnd = i + 1
-          break
-        } else if (cleaned[i] === '[' && i > matchEnd) {
-          // Found another opening bracket, not the matching one
-          break
-        }
-      }
-    }
-    
-    // If we're inside brackets, use bracket boundaries
-    if (bracketStart !== -1 && bracketEnd !== -1) {
-      contextStart = bracketStart
-      contextEnd = bracketEnd
-      prefix = cleaned.substring(contextStart, matchStart)
-      suffix = cleaned.substring(matchEnd, contextEnd)
-    } else {
-      // Look backwards for backslash, opening bracket, opening paren, or dollar
-      // Handle cases like: (\40{,}000), ($42{,}000, \40{,}000)
-      let foundBackslash = false
-      let foundOpeningParen = false
-      let foundDollar = false
-      
-      while (contextStart > 0) {
-        const char = cleaned[contextStart - 1]
-        
-        if (char === '\\') {
-          prefix = char + prefix
-          contextStart--
-          foundBackslash = true
-          // Continue looking for opening paren/bracket before backslash
-        } else if (char === '(') {
-          prefix = char + prefix
-          contextStart--
-          foundOpeningParen = true
-          // Continue looking for $ after opening paren (like ($42{,}000)
-          // Don't break yet - might have $ right after
-        } else if (char === '$') {
-          // Check if this is an escaped dollar (\$) - if so, include both \ and $ in prefix
-          const charBeforeDollar = contextStart > 1 ? cleaned[contextStart - 2] : ''
-          if (charBeforeDollar === '\\') {
-            // This is \$ (escaped dollar), include both in prefix
-            prefix = '\\$' + prefix
-            contextStart -= 2
-            foundDollar = true
-            break // Escaped dollar is the boundary
-          } else if (foundOpeningParen || !foundBackslash) {
-            // If we found opening paren, $ can come after it
-            // Or if no backslash, $ can be standalone
-            prefix = char + prefix
-            contextStart--
-            foundDollar = true
-            // If we found opening paren, we can break (we have ($...)
-            // Otherwise continue to look for opening paren
-            if (foundOpeningParen) {
-              break
-            }
-          } else {
-            // We have a backslash but not an escaped dollar - this $ might be part of math
-            prefix = char + prefix
-            contextStart--
-            foundDollar = true
-            if (foundOpeningParen) {
-              break
-            }
-          }
-        } else if (char === '[') {
-          prefix = char + prefix
-          contextStart--
-          break
-        } else if (/\s/.test(char)) {
-          contextStart--
-        } else {
-          // If we found backslash or opening paren, we might want to stop
-          // But if we found opening paren and haven't found $, continue a bit more
-          if (foundOpeningParen && !foundDollar && contextStart > matchStart - 5) {
-            contextStart--
-          } else {
-            break
-          }
-        }
-      }
-      
-      // Look forwards for closing bracket, closing paren, semicolon, comma, or dollar
-      while (contextEnd < cleaned.length) {
-        const char = cleaned[contextEnd]
-        if (char === ']' || char === ')' || char === ';' || char === '$') {
-          suffix += char
-          contextEnd++
-          break
-        } else if (char === ',') {
-          // Comma might be part of a list, include it but continue looking
-          suffix += char
-          contextEnd++
-          // Don't break on comma - might be in a list like [a, b, c]
-        } else if (/\s/.test(char)) {
-          contextEnd++
-        } else {
-          break
-        }
-      }
-    }
-    
-    const fullMatch = cleaned.substring(contextStart, contextEnd)
-    
-    thousandSeparatorMatches.push({
-      numberPart,
-      fullMatch,
-      startIndex: contextStart,
-      endIndex: contextEnd,
-      prefix: cleaned.substring(contextStart, matchStart),
-      suffix: cleaned.substring(matchEnd, contextEnd)
-    })
-  }
-  
-  // Step 6: Find standalone math elements
-  const standaloneMatches: Array<{ match: string; index: number }> = []
-  const standaloneRegex = /(?:\\pm|\\times|\\div|\\sim|\\approx|\\leq|\\geq|\\neq|\\alpha|\\beta|\\gamma|\\delta|\\epsilon|\\varepsilon|\\theta|\\lambda|\\mu|\\pi|\\sigma|\\phi|\\chi|\\omega|[a-zA-Z]_[a-zA-Z0-9{}]+|\\[a-zA-Z@]+(?:_[a-zA-Z0-9{}]+|\^[a-zA-Z0-9{}]+)(?!\{))/g
-  
-  let standaloneMatch
-  while ((standaloneMatch = standaloneRegex.exec(cleaned)) !== null) {
-    const matchIndex = standaloneMatch.index
-    const matchStr = standaloneMatch[0]
-    
-    // Skip if already wrapped or in protected area
-    const charBefore = matchIndex > 0 ? cleaned[matchIndex - 1] : ''
-    const charAfter = matchIndex + matchStr.length < cleaned.length ? cleaned[matchIndex + matchStr.length] : ''
-    
-    if (charBefore === '$' || charAfter === '$') continue
-    if (charBefore === '`' || charAfter === '`') continue
-    if (cleaned.substring(Math.max(0, matchIndex - 10), matchIndex + matchStr.length + 10).includes('__MATH_PLACEHOLDER')) continue
-    
-    // Skip if part of a word (unless it's a LaTeX command)
-    if (charBefore && /[a-zA-Z0-9]/.test(charBefore) && !matchStr.startsWith('\\')) continue
-    if (charAfter && /[a-zA-Z0-9]/.test(charAfter) && !matchStr.includes('_') && !matchStr.includes('^') && !matchStr.startsWith('\\')) continue
-    
-    // Skip if already part of a parenthesized, expression, or complex match
-    const isAlreadyMatched = parenthesizedMatches.some(m => {
-      const mStart = m.index
-      const mEnd = mStart + m.match.length
-      return matchIndex >= mStart && matchIndex + matchStr.length <= mEnd
-    }) || expressionMatches.some(m => {
-      const mStart = m.index
-      const mEnd = mStart + m.match.length
-      return matchIndex >= mStart && matchIndex + matchStr.length <= mEnd
-    }) || complexMatches.some(m => {
-      const mStart = m.index
-      const mEnd = mStart + m.match.length
-      return matchIndex >= mStart && matchIndex + matchStr.length <= mEnd
-    })
-    
-    if (!isAlreadyMatched) {
-      if (matchStr.startsWith('\\') || matchStr.includes('_') || matchStr.includes('^')) {
-        standaloneMatches.push({ match: matchStr, index: matchIndex })
-      }
-    }
-  }
-  
-  // Step 7: Wrap all matches from right to left
-  // IMPORTANT: Process non-bracket matches FIRST, then brackets
-  // This ensures indices remain valid (bracket processing changes string length)
-  const processedBrackets = new Set<string>()
-  
-  
-  // FIRST PASS: process non-bracket numbers (before bracket processing to preserve indices)
-  for (let i = thousandSeparatorMatches.length - 1; i >= 0; i--) {
-    const { numberPart, fullMatch, startIndex, endIndex, prefix, suffix } = thousandSeparatorMatches[i]
-    
-    // Skip bracket-contained matches for now (process them in second pass)
-    if (fullMatch.startsWith('[') && fullMatch.endsWith(']')) {
-      continue
-    }
-    
-    const before = cleaned.substring(0, startIndex)
-    const after = cleaned.substring(endIndex)
-    
-    // Check if already wrapped
-    if (before.endsWith('$') && after.startsWith('$')) {
-      continue
-    }
-    
-    // Check if already wrapped in dollar signs
-    const charBeforeStart = startIndex > 0 ? cleaned[startIndex - 1] : ''
-    const charAfterEnd = endIndex < cleaned.length ? cleaned[endIndex] : ''
-    if (charBeforeStart === '$' && charAfterEnd === '$') {
-      continue // Already wrapped
-    }
-    
-    
-    // Determine how to wrap based on context
-    let wrappedExpression = ''
-    
-    // Handle various patterns - check prefix and suffix to determine context
-    const hasOpeningParen = prefix.includes('(') || fullMatch.startsWith('(')
-    const hasClosingParen = suffix.includes(')') || fullMatch.endsWith(')')
-    const hasBackslash = prefix.includes('\\') || fullMatch.startsWith('\\')
-    const hasDollar = prefix.includes('$') || fullMatch.startsWith('$')
-    
-    // Check for escaped dollar more robustly - look for \$ anywhere in prefix or at start of fullMatch
-    // Also check if prefix ends with \$ or contains \$ followed by optional whitespace
-    const hasEscapedDollar = prefix.endsWith('\\$') || 
-                             prefix.match(/\\\$\s*$/) !== null || 
-                             fullMatch.startsWith('\\$') ||
-                             (startIndex > 1 && cleaned.substring(startIndex - 2, startIndex) === '\\$')
-    
-    // Special case: \$ (escaped dollar) - replace with $ and wrap normally
-    if (hasEscapedDollar) {
-      // Pattern: \$41{,}000 or (\$ 41{,}000) - replace \$ with $ and wrap
-      // Remove \$ from prefix, handling optional whitespace
-      let prefixWithoutEscapedDollar = prefix
-      if (prefix.endsWith('\\$')) {
-        prefixWithoutEscapedDollar = prefix.slice(0, -2) + '$'
-      } else if (prefix.match(/\\\$\s*$/)) {
-        prefixWithoutEscapedDollar = prefix.replace(/\\\$\s*$/, '$')
-      } else {
-        // \$ is at the character level (before startIndex), just use $ in prefix
-        prefixWithoutEscapedDollar = prefix.replace(/\\\$/g, '$')
-      }
-      wrappedExpression = prefixWithoutEscapedDollar + `$${numberPart}$` + suffix
-    } else if (hasOpeningParen && hasBackslash && hasClosingParen) {
-      // Pattern: (\40{,}000) - wrap just the number part
-      wrappedExpression = prefix + `$${numberPart}$` + suffix
-    } else if (hasOpeningParen && hasDollar) {
-      // Pattern: ($42{,}000 or ($42{,}000; - wrap just the number part
-      wrappedExpression = prefix + `$${numberPart}$` + suffix
-    } else if (hasBackslash && hasClosingParen && !hasOpeningParen) {
-      // Pattern: \40{,}000) - wrap just the number part, keep backslash as text
-      wrappedExpression = prefix + `$${numberPart}$` + suffix
-    } else if (hasBackslash && !hasOpeningParen) {
-      // Pattern: \40{,}000 - wrap just the number part, keep backslash as text
-      wrappedExpression = prefix + `$${numberPart}$` + suffix
-    } else if (hasOpeningParen && hasClosingParen) {
-      // Pattern: (42{,}000) - wrap just the number part
-      wrappedExpression = prefix + `$${numberPart}$` + suffix
-    } else if (hasDollar && !hasOpeningParen) {
-      // Pattern: $42{,}000 - wrap just the number part
-      wrappedExpression = prefix + `$${numberPart}$` + suffix
-    } else if (fullMatch.startsWith('$') && fullMatch.endsWith('$')) {
-      // Already wrapped, skip (shouldn't reach here due to check above, but just in case)
-      continue
-    } else {
-      // Plain number or other context - wrap the number part
-      wrappedExpression = prefix + `$${numberPart}$` + suffix
-    }
-    
-    cleaned = before + wrappedExpression + after
-  }
-  
-  // SECOND PASS: process bracket-contained numbers (after non-bracket processing)
-  // Re-detect bracket matches since string may have changed
-  const bracketRegex = /\[([^\]]*(\d+)\{,\}(\d+)[^\]]*)\]/g
-  let bracketMatch
-  const bracketMatches: Array<{ bracketContent: string; startIndex: number; endIndex: number }> = []
-  
-  while ((bracketMatch = bracketRegex.exec(cleaned)) !== null) {
-    const bracketContent = bracketMatch[1]
-    const startIndex = bracketMatch.index
-    const endIndex = startIndex + bracketMatch[0].length
-    bracketMatches.push({ bracketContent, startIndex, endIndex })
-  }
-  
-  // Process brackets from right to left
-  for (let i = bracketMatches.length - 1; i >= 0; i--) {
-    const { bracketContent, startIndex, endIndex } = bracketMatches[i]
-    const bracketKey = `${startIndex}-${endIndex}`
-    
-    if (processedBrackets.has(bracketKey)) {
-      continue
-    }
-    processedBrackets.add(bracketKey)
-    
-    const before = cleaned.substring(0, startIndex)
-    const after = cleaned.substring(endIndex)
-    
-    // Replace all number{,}number patterns in the bracket content, but preserve existing $ delimiters
-    let replacementCount = 0
-    const wrappedContent = bracketContent.replace(/(\d+)\{,\}(\d+)/g, (match, num1, num2) => {
-      replacementCount++
-      // Check if this number is already wrapped
-      const matchPos = bracketContent.indexOf(match)
-      if (matchPos === -1) {
-        return match
-      }
-      
-      const beforeNum = bracketContent.substring(0, matchPos)
-      const afterNum = bracketContent.substring(matchPos + match.length)
-      // Check if already wrapped (has $ before and after, accounting for spaces)
-      const beforeTrimmed = beforeNum.trim()
-      const afterTrimmed = afterNum.trim()
-      if (beforeTrimmed.endsWith('$') && afterTrimmed.startsWith('$')) {
-        return match // Already wrapped
-      }
-      const wrapped = `$${num1}{,}${num2}$`
-      return wrapped
-    })
-    
-    cleaned = before + `[${wrappedContent}]` + after
-  }
-  
-  for (let i = complexMatches.length - 1; i >= 0; i--) {
-    const { match: matchStr, index } = complexMatches[i]
-    const before = cleaned.substring(0, index)
-    const after = cleaned.substring(index + matchStr.length)
-    
-    if (before.endsWith('$') && after.startsWith('$')) continue
-    cleaned = before + `$${matchStr}$` + after
-  }
-  
-  for (let i = parenthesizedMatches.length - 1; i >= 0; i--) {
-    const { match: matchStr, index } = parenthesizedMatches[i]
-    const before = cleaned.substring(0, index)
-    const after = cleaned.substring(index + matchStr.length)
-    
-    if (before.endsWith('$') && after.startsWith('$')) continue
-    cleaned = before + `$${matchStr}$` + after
-  }
-  
-  for (let i = expressionMatches.length - 1; i >= 0; i--) {
-    const { match: matchStr, index } = expressionMatches[i]
-    const before = cleaned.substring(0, index)
-    const after = cleaned.substring(index + matchStr.length)
-    
-    if (before.endsWith('$') && after.startsWith('$')) continue
-    cleaned = before + `$${matchStr}$` + after
-  }
-  
-  for (let i = standaloneMatches.length - 1; i >= 0; i--) {
-    const { match: matchStr, index } = standaloneMatches[i]
-    const before = cleaned.substring(0, index)
-    const after = cleaned.substring(index + matchStr.length)
-    
-    if (before.endsWith('$') && after.startsWith('$')) continue
-    cleaned = before + `$${matchStr}$` + after
-  }
-  
-  // Step 8: Restore protected math expressions and ensure they're normalized
-  // Restore all placeholders - use replaceAll to handle multiple occurrences
-  protectedMath.forEach((math, index) => {
-    const placeholder = mathPlaceholder(index)
-    // Final safety check: normalize any non-breaking hyphens in protected math before restoring
-    let normalizedMath = math.replace(/\u2011/g, '-').replace(/[\u2013\u2014]/g, '-')
-    
-    // Final safety check: ensure any remaining {,} in protected math are normalized to ,
-    // This catches any thousand separators that might have been missed during protection
-    normalizedMath = normalizedMath.replace(/(\d+)\{,\}(\d+)/g, '$1,$2')
-    
-    // Replace ALL occurrences of this placeholder (in case it appears multiple times)
-    while (cleaned.includes(placeholder)) {
-      cleaned = cleaned.replace(placeholder, normalizedMath)
-    }
-  })
-  
-  // Final safety check: Ensure no placeholders remain in the output
-  // This catches any placeholders that weren't properly restored
-  let maxIterations = 100 // Safety limit to prevent infinite loops
-  let iterations = 0
-  while (cleaned.includes('__MATH_PLACEHOLDER_') && iterations < maxIterations) {
-    iterations++
-    const placeholderMatch = cleaned.match(/__MATH_PLACEHOLDER_(\d+)__/)
-    if (!placeholderMatch) break
-    
-    const index = parseInt(placeholderMatch[1], 10)
-    if (index >= 0 && index < protectedMath.length) {
-      // Try to restore from protectedMath array
-      const math = protectedMath[index]
-      const normalizedMath = math.replace(/\u2011/g, '-').replace(/[\u2013\u2014]/g, '-')
-      cleaned = cleaned.replace(placeholderMatch[0], normalizedMath)
-    } else {
-      // Placeholder index out of bounds - remove the placeholder
-      cleaned = cleaned.replace(placeholderMatch[0], '')
-    }
-  }
-  
-  // Final check: Ensure no non-breaking hyphens remain in the output
-  if (cleaned.includes('\u2011')) {
-    // Force replace any remaining ones as a safety measure
-    cleaned = cleaned.replace(/\u2011/g, '-')
-  }
-  
-  // Step 7: Fix missing spaces after wrapped numbers (e.g., "$1,000$and" -> "$1,000$ and")
-  // This fixes concatenation issues where numbers are directly connected to words
-  cleaned = cleaned.replace(/(\$[\d,]+)\$([a-zA-Z])/g, '$1$ $2')
-  
-  // Also fix missing spaces before wrapped numbers (e.g., "and$1,000$" -> "and $1,000$")
-  cleaned = cleaned.replace(/([a-zA-Z])(\$[\d,]+)\$/g, '$1 $2$')
-  
-  
-  return cleaned
-}
 
 interface ChatGPTEmbeddedProps {
   selectedText: string
@@ -1682,7 +909,7 @@ interface ChatGPTEmbeddedProps {
   onToggleLayout: () => void
   layout: 'floating' | 'split'
   currentPageNumber?: number
-  onCreateKnowledgeNote?: (content: string, linkedText: string | undefined, pageNumber: number | undefined, messageId: string) => void
+  onCreateKnowledgeNote?: (content: string, linkedText: string | undefined, pageNumber: number | undefined, textYPosition: number | undefined, messageId: string) => void
   onClearSelectedText?: () => void
   onAddAnnotationToPDF?: (text: string, pageNumber: number, textYPosition?: number) => void
   onOpenKnowledgeNotes?: () => void
@@ -1691,7 +918,7 @@ interface ChatGPTEmbeddedProps {
 function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, currentPageNumber, onCreateKnowledgeNote, onClearSelectedText, onAddAnnotationToPDF, onOpenKnowledgeNotes }: ChatGPTEmbeddedProps) {
   const { theme } = useTheme()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
-  
+
   // Suppress KaTeX warnings about non-breaking hyphens (we normalize them in preprocessing)
   useEffect(() => {
     const originalWarn = console.warn
@@ -1708,19 +935,19 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
         }
         return String(arg)
       }).join(' ')
-      
+
       // Suppress KaTeX warnings about non-breaking hyphen (U+2011, character code 8209)
       // Check for various warning formats from KaTeX - be very permissive
-      const isKaTeXNonBreakingHyphenWarning = 
-        fullMessage.includes("No character metrics") && 
+      const isKaTeXNonBreakingHyphenWarning =
+        fullMessage.includes("No character metrics") &&
         (fullMessage.includes("‑") || fullMessage.includes("8209") || fullMessage.includes("U+2011")) ||
-        fullMessage.includes("Unrecognized Unicode character") && 
+        fullMessage.includes("Unrecognized Unicode character") &&
         (fullMessage.includes("‑") || fullMessage.includes("8209") || fullMessage.includes("U+2011")) ||
-        fullMessage.includes("LaTeX-incompatible input") && 
+        fullMessage.includes("LaTeX-incompatible input") &&
         (fullMessage.includes("‑") || fullMessage.includes("8209") || fullMessage.includes("U+2011")) ||
-        fullMessage.includes("unknownSymbol") && 
+        fullMessage.includes("unknownSymbol") &&
         (fullMessage.includes("‑") || fullMessage.includes("8209") || fullMessage.includes("U+2011"))
-      
+
       if (isKaTeXNonBreakingHyphenWarning) {
         // Silently ignore - we're normalizing these characters in preprocessing
         // The normalization is working (logs show 0 remaining), but KaTeX may still
@@ -1729,12 +956,12 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
       }
       originalWarn.apply(console, args)
     }
-    
+
     return () => {
       console.warn = originalWarn
     }
   }, [])
-  const [messages, setMessages] = useState<Array<ChatMessage & { id: string; selectedTextAtSend?: string; thinking?: string }>>([])
+  const [messages, setMessages] = useState<Array<ChatMessage & { id: string; selectedTextAtSend?: string; pageNumberAtSend?: number; textYPositionAtSend?: number; thinking?: string }>>([])
   const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({}) // Track which thinking sections are expanded
   const [expandedPdfContext, setExpandedPdfContext] = useState<Record<string, boolean>>({}) // Track which PDF context sections are expanded
   // Track multiple responses per message: messageId -> array of responses
@@ -1749,6 +976,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
   const [isCollapsed, setIsCollapsed] = useState(true)
   const [savedScrollPosition, setSavedScrollPosition] = useState<number | null>(null)
   const [modelMode, setModelMode] = useState<ModelMode>('auto')
+  const [isInputFocused, setIsInputFocused] = useState(false)
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null) // Track which image is enlarged (using messageId-index format)
   const [uploadedImages, setUploadedImages] = useState<string[]>([]) // Array of base64 image URLs
   const [isDraggingOver, setIsDraggingOver] = useState(false) // Track drag-over state for visual feedback
@@ -1773,7 +1001,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     if (messagesContainerRef.current) {
       const container = messagesContainerRef.current
       const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
-      
+
       // Auto-scroll if user is near the bottom OR if forced (e.g., when sending a new message)
       if (isNearBottom || force) {
         // Use requestAnimationFrame to ensure DOM layout is complete (important for tables)
@@ -1782,22 +1010,22 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
           requestAnimationFrame(() => {
             if (!messagesContainerRef.current) return
             const container = messagesContainerRef.current
-            
-        if (smooth) {
-          // Try scrollIntoView first, fallback to direct scrollTop
-          if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
-          } else {
-            container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
-          }
-        } else {
-          // Instant scroll - use direct scrollTop for better reliability
-          if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: 'auto' })
-          } else {
-            container.scrollTop = container.scrollHeight
-          }
-        }
+
+            if (smooth) {
+              // Try scrollIntoView first, fallback to direct scrollTop
+              if (messagesEndRef.current) {
+                messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+              } else {
+                container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+              }
+            } else {
+              // Instant scroll - use direct scrollTop for better reliability
+              if (messagesEndRef.current) {
+                messagesEndRef.current.scrollIntoView({ behavior: 'auto' })
+              } else {
+                container.scrollTop = container.scrollHeight
+              }
+            }
           })
         })
       }
@@ -1826,7 +1054,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     const prevCount = prevMessageCountRef.current
     const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null
     const lastMessageRole = lastMessage?.role || null
-    
+
     // If a new message was added (count increased)
     if (currentCount > prevCount) {
       // If it's a user message, force scroll to bottom (user asked a new question)
@@ -1840,7 +1068,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
       // During streaming updates, use instant scroll to avoid bouncing
       scrollToBottom(false)
     }
-    
+
     prevMessageCountRef.current = currentCount
     prevLastMessageRoleRef.current = lastMessageRole
   }, [messages, isLoading])
@@ -1856,17 +1084,17 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     // Use ResizeObserver to detect when content height changes (e.g., table rendering)
     const resizeObserver = new ResizeObserver(() => {
       if (!messagesContainerRef.current) return
-      
+
       const currentScrollHeight = messagesContainerRef.current.scrollHeight
       const isNearBottom = messagesContainerRef.current.scrollHeight - messagesContainerRef.current.scrollTop - messagesContainerRef.current.clientHeight < 100
-      
+
       // If content height increased and user is near bottom, scroll to keep up
       if (currentScrollHeight > lastScrollHeight && isNearBottom) {
         // Clear any pending scroll
         if (scrollTimeout) {
           clearTimeout(scrollTimeout)
         }
-        
+
         // Debounce scroll to avoid excessive scrolling during rapid updates
         scrollTimeout = setTimeout(() => {
           scrollToBottom(false)
@@ -1931,7 +1159,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
 
   useEffect(() => {
     checkApiKey()
-    
+
     // Periodically check API key status to handle backend restarts
     // Increased interval to 10 seconds to reduce rate limiting issues
     const intervalId = setInterval(() => {
@@ -1939,9 +1167,9 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
         checkApiKey()
       }
     }, 10000) // Check every 10 seconds
-    
+
     return () => clearInterval(intervalId)
-  }, [isAuthenticated, user])
+  }, [isAuthenticated])
 
   // Auto-unfold chat history when in split layout
   useEffect(() => {
@@ -1979,7 +1207,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
       const navbarHeight = 60
       const minimumChatHeight = 400 // Minimum height needed for chat to be usable
       const availableHeight = viewportHeight - navbarHeight - bottomOffset
-      
+
       // If available height is less than minimum, auto-collapse
       if (availableHeight < minimumChatHeight) {
         setIsCollapsed(true)
@@ -2019,15 +1247,15 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
 
       // Get current container dimensions
       const containerHeight = messagesContainer.clientHeight
-      
+
       // Calculate the image size (max-height: 70vh, max-width: 600px)
       const viewportHeight = window.innerHeight
       const maxImageHeight = Math.min(viewportHeight * 0.7, 600) // 600px max width, 70vh max height
-      
+
       // Check if image fits in current container
       // We need at least the image height + some padding
       const requiredHeight = maxImageHeight + 40 // padding
-      
+
       if (requiredHeight <= containerHeight) {
         // Image fits, don't resize
         setEnlargedImageMaxHeight(null)
@@ -2075,14 +1303,14 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     if (modelMode !== 'auto') return false
     const currentModel = getCurrentModel()
     // Check if it's one of the llama 4 models
-    return currentModel === 'meta-llama/llama-4-scout-17b-16e-instruct' || 
-           currentModel === 'meta-llama/llama-4-maverick-17b-128e-instruct'
+    return currentModel === 'meta-llama/llama-4-scout-17b-16e-instruct' ||
+      currentModel === 'meta-llama/llama-4-maverick-17b-128e-instruct'
   }
 
   // Clear uploaded images when switching from vision model to non-vision model
   useEffect(() => {
     const currentlyIsVision = isVisionModel()
-    
+
     // If switching to a non-vision model and there are uploaded images, clear them
     if (!currentlyIsVision && uploadedImages.length > 0) {
       setUploadedImages([])
@@ -2091,7 +1319,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
 
   const processImageFiles = (files: FileList | File[]) => {
     const fileArray = Array.from(files)
-    
+
     fileArray.forEach((file) => {
       if (!file.type.startsWith('image/')) {
         setError('Please upload image files only.')
@@ -2164,12 +1392,12 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
   const scrollImages = (direction: 'left' | 'right') => {
     const container = imagesPreviewRef.current
     if (!container) return
-    
+
     const scrollAmount = 200 // pixels to scroll
-    const newScrollLeft = direction === 'left' 
+    const newScrollLeft = direction === 'left'
       ? container.scrollLeft - scrollAmount
       : container.scrollLeft + scrollAmount
-    
+
     container.scrollTo({
       left: newScrollLeft,
       behavior: 'smooth'
@@ -2186,7 +1414,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
       return
     }
     const canScrollLeft = container.scrollLeft > 0
-    const canScrollRight = container.scrollLeft < container.scrollWidth - container.clientWidth - 1
+    const canScrollRight = container.scrollLeft < container.scrollWidth - container.scrollWidth - 1
     setMessageScrollStates(prev => ({
       ...prev,
       [messageId]: { canScrollLeft, canScrollRight }
@@ -2196,12 +1424,12 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
   const scrollMessageImages = (messageId: string, direction: 'left' | 'right') => {
     const container = messageImagesRefs.current[messageId]
     if (!container) return
-    
+
     const scrollAmount = 200 // pixels to scroll
-    const newScrollLeft = direction === 'left' 
+    const newScrollLeft = direction === 'left'
       ? container.scrollLeft - scrollAmount
       : container.scrollLeft + scrollAmount
-    
+
     container.scrollTo({
       left: newScrollLeft,
       behavior: 'smooth'
@@ -2214,7 +1442,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     const timeoutId = setTimeout(() => {
       checkScrollButtons()
     }, 0)
-    
+
     const container = imagesPreviewRef.current
     if (container) {
       container.addEventListener('scroll', checkScrollButtons)
@@ -2226,7 +1454,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
         window.removeEventListener('resize', checkScrollButtons)
       }
     }
-    
+
     return () => {
       clearTimeout(timeoutId)
     }
@@ -2239,15 +1467,15 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
         checkMessageScrollButtons(messageId)
       })
     }, 0)
-    
+
     const handleResize = () => {
       Object.keys(messageImagesRefs.current).forEach(messageId => {
         checkMessageScrollButtons(messageId)
       })
     }
-    
+
     window.addEventListener('resize', handleResize)
-    
+
     return () => {
       clearTimeout(timeoutId)
       window.removeEventListener('resize', handleResize)
@@ -2259,12 +1487,12 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     const userInput = input.trim()
     const hasImages = uploadedImages.length > 0
     if (!userInput && !selectedText && !hasImages) return
-    
+
     if (!isAuthenticated) {
       setError('Please sign in to use the chat feature.')
       return
     }
-    
+
     if (apiKeyMissing) {
       setError('Please configure your Groq API key in Settings.')
       return
@@ -2291,28 +1519,33 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     if (isVisionModel() && uploadedImages.length > 0) {
       // Vision models need content array format
       const contentArray: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = []
-      
+
       // Add text content
       if (userMessageContent) {
         contentArray.push({ type: 'text', text: userMessageContent })
       }
-      
+
       // Add images
       uploadedImages.forEach((imageUrl) => {
         contentArray.push({ type: 'image_url', image_url: { url: imageUrl } })
       })
-      
+
       messageContent = contentArray
     } else {
       // Regular text-only message
       messageContent = userMessageContent
     }
 
-    const userMessage: ChatMessage & { id: string; selectedTextAtSend?: string } = {
+    // Get selection position from window global
+    const selectionPosition = (window as any).__lastSelectedTextPosition
+    
+    const userMessage: ChatMessage & { id: string; selectedTextAtSend?: string; pageNumberAtSend?: number; textYPositionAtSend?: number } = {
       id: Date.now().toString(),
       role: 'user',
       content: messageContent,
       selectedTextAtSend: selectedText || undefined, // Store the selected text at the time of sending
+      pageNumberAtSend: selectionPosition?.pageNumber, // Store the page number where text was selected
+      textYPositionAtSend: selectionPosition?.textYPosition, // Store the Y position where text was selected
     }
 
     // Update UI immediately (optimistic update) - show user message and loading state
@@ -2325,7 +1558,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     }, 0)
     setIsLoading(true)
     setError(null)
-    
+
     // Force scroll to bottom when user sends a new question
     // Use requestAnimationFrame to ensure DOM has updated
     requestAnimationFrame(() => {
@@ -2339,18 +1572,18 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     const isReasoningMode = modelMode === 'reasoning'
     const hasPdf = (pdfText && pdfText.trim().length > 0) || !!selectedText
     const questionText = userInput || (selectedText ? `Tell me about: ${selectedText}` : '')
-    
+
     // Get auth token for LLM classification if needed
     const authToken = localStorage.getItem('auth_token') || ''
-    
+
     // Classify the question (hybrid: rules first, LLM for ambiguous cases)
     let classification: QuestionClassification
     let routing: RoutingDecision
-    
+
     try {
       classification = await classifyQuestion(questionText, messages, hasPdf, authToken)
       routing = routeQuestion(classification, modelMode, messages.length)
-      
+
     } catch (error) {
       console.warn('[Smart Router] Classification failed, using default routing:', error)
       // Fallback to default routing (use generous PDF context to ensure questions can be answered)
@@ -2365,10 +1598,10 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
         needsReasoning: false
       }
     }
-    
+
     // Apply routing decision to determine context
     let contextToSend: string | undefined
-    
+
     if (routing.includePdfContext && routing.pdfContextTokens > 0) {
       if (selectedText && !userInput) {
         // Selected text takes priority
@@ -2378,8 +1611,8 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
         if (userInput && userInput.trim().length > 0) {
           // Use simple keyword search approach for better retrieval
           contextToSend = await extractRelevantPDFContext(
-            pdfText, 
-            userInput, 
+            pdfText,
+            userInput,
             routing.pdfContextTokens
           )
         } else {
@@ -2393,14 +1626,16 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     const assistantMessageId = (Date.now() + 1).toString()
     // Find the selected text from the user message that triggered this response
     const userMessageSelectedText = userMessage.selectedTextAtSend
-    const assistantMessage: ChatMessage & { id: string; selectedTextAtSend?: string } = {
+    const assistantMessage: ChatMessage & { id: string; selectedTextAtSend?: string; pageNumberAtSend?: number; textYPositionAtSend?: number } = {
       id: assistantMessageId,
       role: 'assistant',
       content: '',
       selectedTextAtSend: userMessageSelectedText, // Inherit the selected text from the user's message
+      pageNumberAtSend: userMessage.pageNumberAtSend, // Inherit the page number from the user's message
+      textYPositionAtSend: userMessage.textYPositionAtSend, // Inherit the Y position from the user's message
     }
     setMessages((prev) => [...prev, assistantMessage])
-    
+
     // Force scroll to bottom when assistant message is created
     // Use requestAnimationFrame to ensure DOM has updated
     requestAnimationFrame(() => {
@@ -2412,41 +1647,41 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
     try {
       // Smart chat history management based on routing decision
       let conversationHistory: ChatMessage[] = []
-      
+
       if (routing.includeChatHistory && messages.length > 0) {
         const totalMessages = messages.length
         const recentCount = routing.recentMessagesCount
-        
+
         if (totalMessages > recentCount && routing.summarizeOldMessages) {
-        // Split into old and recent messages
+          // Split into old and recent messages
           const oldMessages = messages.slice(0, totalMessages - recentCount)
           const recentMessages = messages.slice(-recentCount)
-        
+
           // Summarize old messages (use reasoning mode flag for aggressive summarization)
           const summaryMessage = summarizeOldMessages(oldMessages, isReasoningMode)
-        
-        // Combine summary + recent messages
-        conversationHistory = [
-          summaryMessage,
-          ...recentMessages.map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        }))
-        ]
+
+          // Combine summary + recent messages
+          conversationHistory = [
+            summaryMessage,
+            ...recentMessages.map((msg) => ({
+              role: msg.role,
+              content: msg.content,
+            }))
+          ]
         } else if (totalMessages <= recentCount) {
-        // If we have few messages, send all of them
-        conversationHistory = messages.map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        }))
-          } else {
+          // If we have few messages, send all of them
+          conversationHistory = messages.map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+          }))
+        } else {
           // Just send recent messages without summary
           conversationHistory = messages.slice(-recentCount).map((msg) => ({
             role: msg.role,
             content: msg.content,
           }))
-          }
-        } else {
+        }
+      } else {
         // No chat history needed based on routing
         conversationHistory = []
       }
@@ -2456,24 +1691,24 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
         [...conversationHistory, userMessage],
         contextToSend
       )
-      
+
       // Model-specific token limits (conservative estimates to avoid rate limits)
       const MODEL_TOKEN_LIMITS: Record<string, number> = {
         'openai/gpt-oss-120b': 7000, // 8000 TPM limit, use 7000 to be safe
         'openai/gpt-oss-20b': 7000,  // 8000 TPM limit, use 7000 to be safe
         'qwen/qwen3-32b': 5000,      // 6000 TPM limit, use 5000 to be safe (also has lower request limit)
       }
-      
+
       const currentModel = getCurrentModel()
       const modelLimit = MODEL_TOKEN_LIMITS[currentModel] || 8000
-      
+
       // If estimated tokens exceed limit, reduce context
       if (estimatedTokens > modelLimit && contextToSend) {
         const reductionFactor = modelLimit / estimatedTokens
         const targetContextTokens = Math.floor(estimateTokens(contextToSend) * reductionFactor * 0.9) // 90% to be safe
         contextToSend = truncateText(contextToSend, targetContextTokens)
       }
-      
+
       // Add KaTeX-friendly system prompt to guide model's math output
       const katexSystemPrompt: ChatMessage = {
         role: 'system',
@@ -2515,9 +1750,11 @@ Follow these strict rules:
 5. **Text Formatting Consistency:**
    * Use consistent markdown formatting for similar phrases.
    * If you use italic (\`*text*\`) for emphasis, use it consistently for similar phrases.
-   * **Always preserve spaces** between numbers and words (e.g., "1,000 and", not "1,000and").`
-        }
-        
+   * **Always preserve spaces** between numbers and words (e.g., "1,000 and", not "1,000and$42,000").
+   * **Do not** wrap dollar amounts in \`$\` delimiters unless they are part of a mathematical expression.
+   * For consistency, use the same formatting style for similar phrases (e.g., if you use "no smaller than" in normal text, use "no larger than" in the same style, not italic).`
+      }
+
       // Prepend system prompt to conversation history (only once, at the beginning)
       const messagesWithSystemPrompt = conversationHistory.length > 0 && conversationHistory[0]?.role === 'system'
         ? conversationHistory // Already has a system message, don't add another
@@ -2528,29 +1765,29 @@ Follow these strict rules:
         [...messagesWithSystemPrompt, userMessage],
         contextToSend
       )
-      
+
       if (finalEstimatedTokens > modelLimit && messagesWithSystemPrompt.length > 1) {
         // Remove oldest messages from conversation history, but keep system prompt
         const systemMsg = messagesWithSystemPrompt[0]?.role === 'system' ? messagesWithSystemPrompt[0] : null
         const otherMessages = systemMsg ? messagesWithSystemPrompt.slice(1) : messagesWithSystemPrompt
         const summaryMsg = otherMessages[0]
         const restMessages = otherMessages.slice(1)
-        
+
         // Keep only the most recent message pair
         const reducedHistory = restMessages.slice(-2)
-        const newHistory = summaryMsg?.content 
+        const newHistory = summaryMsg?.content
           ? (systemMsg ? [systemMsg, summaryMsg, ...reducedHistory] : [summaryMsg, ...reducedHistory])
           : (systemMsg ? [systemMsg, ...reducedHistory] : reducedHistory)
-        
+
         conversationHistory = newHistory
         finalEstimatedTokens = estimateConversationTokens(
           [...conversationHistory, userMessage],
           contextToSend
         )
-        } else {
+      } else {
         conversationHistory = messagesWithSystemPrompt
-        }
-      
+      }
+
       // Last resort: remove context entirely if still over limit
       if (finalEstimatedTokens > modelLimit && contextToSend) {
         contextToSend = undefined
@@ -2570,31 +1807,31 @@ Follow these strict rules:
             return
           }
           fullResponse += chunk
-          
+
           // Extract thinking during streaming for both Reasoning and Advanced modes
           // This ensures users don't see the __REASONING_START__/__REASONING_END__ markers during streaming
           const { thinking: streamingThinking, mainContent: streamingMainContent } = extractThinking(fullResponse)
           const hasStreamingThinking = streamingThinking && streamingThinking.trim().length > 0
-          
+
           if (isReasoningMode || (modelMode === 'advanced' && hasStreamingThinking)) {
             // In reasoning mode or advanced mode with thinking, extract and display separately
-                  setMessages((prev) =>
-                    prev.map((msg) =>
-                      msg.id === assistantMessageId
-                        ? { 
-                            ...msg, 
-                      content: streamingMainContent || fullResponse, // Show main content without reasoning markers
-                      thinking: hasStreamingThinking ? streamingThinking : msg.thinking // Update thinking if available
-                      }
-                    : msg
-                )
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessageId
+                  ? {
+                    ...msg,
+                    content: streamingMainContent || fullResponse, // Show main content without reasoning markers
+                    thinking: hasStreamingThinking ? streamingThinking : msg.thinking // Update thinking if available
+                  }
+                  : msg
               )
-            } else {
+            )
+          } else {
             // In other modes without thinking, show content streaming normally
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantMessageId
-                ? { ...msg, content: fullResponse }
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessageId
+                  ? { ...msg, content: fullResponse }
                   : msg
               )
             )
@@ -2618,7 +1855,7 @@ Follow these strict rules:
       })
 
       const finalResponse = await messagePromise
-      
+
       // For reasoning mode, extract reasoning from response
       // Groq reasoning models can return reasoning in different formats:
       // 1. reasoning_format: 'parsed' - reasoning in message.reasoning field
@@ -2627,35 +1864,35 @@ Follow these strict rules:
       // The service will handle this and return both reasoning and content
       // For now, we'll check if the response contains reasoning tags
       const { thinking, mainContent } = extractThinking(finalResponse)
-      
+
       // Fix: Handle cases where mainContent is empty or thinking/mainContent are identical
       let finalThinking = thinking
       let finalMainContent = mainContent
-      
+
       // Case 1: If mainContent is empty but thinking exists, the model only returned reasoning
       // For Compound models, when content is empty, the reasoning itself might contain the answer
       // We should extract a concise conclusion/summary from the thinking as the main content
       if (thinking && (!mainContent || mainContent.trim().length === 0)) {
-        
+
         // Try multiple strategies to extract a meaningful conclusion:
-        
+
         // Strategy 1: Look for explicit conclusion markers
         const conclusionPatterns = [
           /(?:Therefore|In conclusion|To summarize|The answer is|The result is|In summary|To conclude)[:.]?\s*(.+?)(?:\n\n|$)/is,
           /(?:So|Thus|Hence)[,.]?\s*(.+?)(?:\n\n|$)/is,
           /(?:The final answer is|The solution is|The answer)[:.]?\s*(.+?)(?:\n\n|$)/is
         ]
-        
+
         let extractedConclusion = null
         for (const pattern of conclusionPatterns) {
           const match = thinking.match(pattern)
           if (match && match[1]) {
             const matchIndex = thinking.indexOf(match[0])
             const afterMatch = thinking.substring(matchIndex + match[0].length)
-            
+
             // Extract the text after the conclusion marker
             let conclusionText = match[1].trim()
-            
+
             // Find the next sentence boundary to ensure we have a complete sentence
             const nextSentenceMatch = afterMatch.match(/^([^.!?]*[.!?]+)/)
             if (nextSentenceMatch) {
@@ -2667,9 +1904,9 @@ Follow these strict rules:
                 conclusionText += paragraphEnd[1]
               }
             }
-            
+
             extractedConclusion = conclusionText.trim()
-            
+
             // Ensure we start from a sentence boundary (not mid-sentence)
             // If the extracted text doesn't start with a capital letter or is clearly mid-sentence,
             // try to find the sentence start
@@ -2681,7 +1918,7 @@ Follow these strict rules:
                 extractedConclusion = sentenceStart[2] + extractedConclusion
               }
             }
-            
+
             // Limit conclusion length to avoid showing too much (take first 1-2 complete sentences)
             if (extractedConclusion.length > 300) {
               // Split by sentence boundaries while preserving punctuation
@@ -2700,7 +1937,7 @@ Follow these strict rules:
             break
           }
         }
-        
+
         // Strategy 2: If no conclusion pattern found, look for the last step or final paragraph
         if (!extractedConclusion) {
           const paragraphs = thinking.split(/\n\n+/).filter(p => p.trim().length > 0)
@@ -2733,7 +1970,7 @@ Follow these strict rules:
                 break
               }
             }
-            
+
             // If still no conclusion, use the last paragraph anyway, but ensure complete sentences
             if (!extractedConclusion && paragraphs.length > 0) {
               const lastPara = paragraphs[paragraphs.length - 1].trim()
@@ -2756,7 +1993,7 @@ Follow these strict rules:
             }
           }
         }
-        
+
         // Clean up the extracted conclusion: fix any math formatting issues
         if (extractedConclusion) {
           // Fix patterns like $\40,000$ or $\42,000$ (where \40 and \42 are octal escapes)
@@ -2768,22 +2005,22 @@ Follow these strict rules:
             // So we just take the octal digits as-is and combine with rest
             return `$${octalPart}${rest}$`
           })
-          
+
           // Fix escaped dollar signs that are already inside math delimiters
           // Pattern: $\$...$ should become $...$ (remove the escape since we're already in math mode)
           extractedConclusion = extractedConclusion.replace(/\$\\\$(\d[^$]*)\$/g, '$$$1$')
-          
+
           // Fix cases where we have \$ outside of math delimiters that should be in math
           // Pattern: \$40,000 (not in math) should become $40,000$ if it's a number
           extractedConclusion = extractedConclusion.replace(/\\\$(\d[^$]*?)(?=\s|$|,|\.|;)/g, '$$$1$')
         }
-        
+
         // Set main content to the extracted conclusion
         // If we can't extract a good conclusion, leave it empty (better than showing duplicate thinking)
         finalMainContent = extractedConclusion || ''
         // Keep the full thinking in the thinking section
         finalThinking = thinking
-        
+
       }
       // Case 2: If thinking and mainContent are identical, it means the model returned duplicate content
       else if (thinking && mainContent && thinking.trim() === mainContent.trim()) {
@@ -2791,20 +2028,20 @@ Follow these strict rules:
         finalThinking = null
         finalMainContent = mainContent
       }
-      
-      
+
+
       // Extract and store thinking if it exists (for both Reasoning and Advanced modes)
       // Advanced mode models (like groq/compound) sometimes return reasoning content
       // Use finalThinking and finalMainContent (which handle duplicate detection)
       const hasThinking = finalThinking && finalThinking.trim().length > 0
-      
+
       // Store this response in messageResponses
       const responseData = {
         content: finalMainContent || (hasThinking ? '' : finalResponse),
         thinking: hasThinking ? (finalThinking || undefined) : undefined,
         timestamp: Date.now()
       }
-      
+
       setMessageResponses((prev) => {
         const existing = prev[assistantMessageId] || []
         const newResponses = [...existing, responseData]
@@ -2813,19 +2050,19 @@ Follow these strict rules:
         setCurrentResponseIndex((prevIdx) => ({ ...prevIdx, [assistantMessageId]: newIndex }))
         return { ...prev, [assistantMessageId]: newResponses }
       })
-      
+
       if (isReasoningMode || (modelMode === 'advanced' && hasThinking)) {
         // In reasoning mode or advanced mode with thinking, show both thinking and main content
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantMessageId
-              ? { 
-                  ...msg, 
-                  // If finalMainContent is empty, don't fall back to finalResponse (which contains reasoning)
-                  // Instead, use empty string or a placeholder
-                  content: responseData.content,
-                  thinking: responseData.thinking
-                }
+              ? {
+                ...msg,
+                // If finalMainContent is empty, don't fall back to finalResponse (which contains reasoning)
+                // Instead, use empty string or a placeholder
+                content: responseData.content,
+                thinking: responseData.thinking
+              }
               : msg
           )
         )
@@ -2886,18 +2123,18 @@ Follow these strict rules:
     // Find the assistant message
     const assistantMessageIndex = messages.findIndex(msg => msg.id === messageId)
     if (assistantMessageIndex === -1 || messages[assistantMessageIndex].role !== 'assistant') return
-    
+
     // Find the previous user message
     let userMessageIndex = assistantMessageIndex - 1
     while (userMessageIndex >= 0 && messages[userMessageIndex].role !== 'user') {
       userMessageIndex--
     }
-    
+
     if (userMessageIndex < 0) return
-    
+
     const userMessage = messages[userMessageIndex]
     const isReasoningMode = modelMode === 'reasoning'
-    
+
     // Clear the current response content to show it's being regenerated
     setMessages((prev) =>
       prev.map((msg) =>
@@ -2906,31 +2143,31 @@ Follow these strict rules:
           : msg
       )
     )
-    
+
     // Set loading state
     setIsLoading(true)
-    
+
     // Abort any existing request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
     }
     abortControllerRef.current = new AbortController()
-    
+
     try {
       // Extract question text and context from the original user message
-      const questionText = typeof userMessage.content === 'string' 
-        ? userMessage.content 
+      const questionText = typeof userMessage.content === 'string'
+        ? userMessage.content
         : userMessage.content.filter((item: any) => item.type === 'text').map((item: any) => item.text).join('\n')
-      
+
       // Get the original selected text that was used
       const originalSelectedText = userMessage.selectedTextAtSend
-      
+
       // Build conversation history up to (but not including) this assistant message
       const conversationHistory: ChatMessage[] = messages.slice(0, assistantMessageIndex).map((msg) => ({
         role: msg.role,
         content: msg.content
       }))
-      
+
       // Determine context to send (PDF context if available)
       let contextToSend: string | undefined
       if (pdfText && pdfText.trim().length > 0) {
@@ -2945,7 +2182,7 @@ Follow these strict rules:
           )
         }
       }
-      
+
       // Determine which model to use based on mode
       let currentModel: string
       if (modelMode === 'auto') {
@@ -2955,7 +2192,7 @@ Follow these strict rules:
       } else {
         currentModel = ADVANCED_MODELS.primary
       }
-      
+
       // Call the API to get a new response
       let fullResponse = ''
       const finalResponse = await sendChatMessage(
@@ -2966,20 +2203,20 @@ Follow these strict rules:
             return
           }
           fullResponse += chunk
-          
+
           // Extract thinking during streaming
           const { thinking: streamingThinking, mainContent: streamingMainContent } = extractThinking(fullResponse)
           const hasStreamingThinking = streamingThinking && streamingThinking.trim().length > 0
-          
+
           if (isReasoningMode || (modelMode === 'advanced' && hasStreamingThinking)) {
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === messageId
-                  ? { 
-                      ...msg, 
-                      content: streamingMainContent || fullResponse,
-                      thinking: hasStreamingThinking ? streamingThinking : msg.thinking
-                    }
+                  ? {
+                    ...msg,
+                    content: streamingMainContent || fullResponse,
+                    thinking: hasStreamingThinking ? streamingThinking : msg.thinking
+                  }
                   : msg
               )
             )
@@ -2998,14 +2235,14 @@ Follow these strict rules:
         abortControllerRef.current.signal,
         isReasoningMode
       )
-      
+
       // Process the final response
       const { thinking, mainContent } = extractThinking(finalResponse)
       const hasThinking = thinking && thinking.trim().length > 0
-      
+
       let finalThinking = thinking
       let finalMainContent = mainContent
-      
+
       // Handle Advanced mode special cases
       if (modelMode === 'advanced' && hasThinking) {
         if (thinking && (!mainContent || mainContent.trim().length === 0)) {
@@ -3015,14 +2252,14 @@ Follow these strict rules:
             /(?:So|Thus|Hence)[,.]?\s*(.+?)(?:\n\n|$)/is,
             /(?:The final answer is|The solution is|The answer)[:.]?\s*(.+?)(?:\n\n|$)/is
           ]
-          
+
           let extractedConclusion = null
           for (const pattern of conclusionPatterns) {
             const match = thinking.match(pattern)
             if (match && match[1]) {
               const matchIndex = thinking.indexOf(match[0])
               const afterMatch = thinking.substring(matchIndex + match[0].length)
-              
+
               let conclusionText = match[1].trim()
               const nextSentenceMatch = afterMatch.match(/^([^.!?]*[.!?]+)/)
               if (nextSentenceMatch) {
@@ -3033,9 +2270,9 @@ Follow these strict rules:
                   conclusionText += paragraphEnd[1]
                 }
               }
-              
+
               extractedConclusion = conclusionText.trim()
-              
+
               if (extractedConclusion && !extractedConclusion.match(/^[A-Z"']/)) {
                 const beforeMatch = thinking.substring(Math.max(0, matchIndex - 200), matchIndex)
                 const sentenceStart = beforeMatch.match(/([.!?]\s+)([A-Z"'][^.!?]*)$/)
@@ -3043,7 +2280,7 @@ Follow these strict rules:
                   extractedConclusion = sentenceStart[2] + extractedConclusion
                 }
               }
-              
+
               if (extractedConclusion.length > 300) {
                 const sentenceParts = extractedConclusion.match(/[^.!?]*[.!?]+/g)
                 if (sentenceParts && sentenceParts.length > 0) {
@@ -3058,7 +2295,7 @@ Follow these strict rules:
               break
             }
           }
-          
+
           if (!extractedConclusion) {
             const paragraphs = thinking.split(/\n\n+/).filter(p => p.trim().length > 0)
             if (paragraphs.length > 0) {
@@ -3082,7 +2319,7 @@ Follow these strict rules:
                   break
                 }
               }
-              
+
               if (!extractedConclusion && paragraphs.length > 0) {
                 const lastPara = paragraphs[paragraphs.length - 1].trim()
                 const sentenceMatches = lastPara.match(/[^.!?]*[.!?]+/g)
@@ -3100,16 +2337,7 @@ Follow these strict rules:
               }
             }
           }
-          
-          if (extractedConclusion) {
-            // Clean up math formatting
-            extractedConclusion = extractedConclusion.replace(/\$\\([0-7]{1,3})(\d[^$]*)\$/g, (_match, octalPart, rest) => {
-              return `$${octalPart}${rest}$`
-            })
-            extractedConclusion = extractedConclusion.replace(/\$\\\$(\d[^$]*)\$/g, '$$$1$')
-            extractedConclusion = extractedConclusion.replace(/\\\$(\d[^$]*?)(?=\s|$|,|\.|;)/g, '$$$1$')
-          }
-          
+
           finalMainContent = extractedConclusion || ''
           finalThinking = thinking
         } else if (thinking && mainContent && thinking.trim() === mainContent.trim()) {
@@ -3117,39 +2345,39 @@ Follow these strict rules:
           finalMainContent = mainContent
         }
       }
-      
+
       // Store this response in messageResponses
       const responseData = {
         content: finalMainContent || (hasThinking ? '' : finalResponse),
         thinking: hasThinking ? (finalThinking || undefined) : undefined,
         timestamp: Date.now()
       }
-      
+
       // Update both states together to ensure consistency
       setMessageResponses((prev) => {
         const existing = prev[messageId] || []
         const newResponses = [...existing, responseData]
-        
+
         // Update currentResponseIndex immediately with the new index
         setCurrentResponseIndex((prevIdx) => {
           // Ensure we're setting it to the latest index
           const latestIndex = newResponses.length - 1
           return { ...prevIdx, [messageId]: latestIndex }
         })
-        
+
         return { ...prev, [messageId]: newResponses }
       })
-      
+
       // Update the message with the new response
       if (isReasoningMode || (modelMode === 'advanced' && hasThinking)) {
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === messageId
-              ? { 
-                  ...msg, 
-                  content: responseData.content,
-                  thinking: responseData.thinking
-                }
+              ? {
+                ...msg,
+                content: responseData.content,
+                thinking: responseData.thinking
+              }
               : msg
           )
         )
@@ -3191,27 +2419,27 @@ Follow these strict rules:
   const handleNavigateResponse = (messageId: string, direction: 'prev' | 'next') => {
     const responses = messageResponses[messageId] || []
     if (responses.length === 0) return
-    
+
     // Get current index, defaulting to the last response if not set
     const currentIdx = currentResponseIndex[messageId] ?? (responses.length - 1)
     let newIndex = currentIdx
-    
+
     if (direction === 'prev') {
       newIndex = Math.max(0, currentIdx - 1)
     } else {
       // For 'next', make sure we don't go beyond the last index
       newIndex = Math.min(responses.length - 1, currentIdx + 1)
     }
-    
+
     // If we're already at the target index, don't do anything
     if (newIndex === currentIdx) return
-    
+
     // Update the index first
     setCurrentResponseIndex((prev) => {
       const updated = { ...prev, [messageId]: newIndex }
       return updated
     })
-    
+
     // Update the message content to show the selected response
     const selectedResponse = responses[newIndex]
     if (selectedResponse) {
@@ -3234,7 +2462,7 @@ Follow these strict rules:
       const textItem = content.find(item => item.type === 'text')
       textContent = textItem?.text || ''
     }
-    
+
     // Check if message contains "Context from PDF:" pattern
     const contextMatch = textContent.match(/^(.+?)\n\nContext from PDF:\s*(.+)$/s)
     if (contextMatch) {
@@ -3243,7 +2471,7 @@ Follow these strict rules:
         pdfContext: contextMatch[2].trim()
       }
     }
-    
+
     // Check for "Tell me about this:" pattern (when only selected text is used)
     const tellMeMatch = textContent.match(/^Tell me about this:\s*(.+)$/s)
     if (tellMeMatch) {
@@ -3252,7 +2480,7 @@ Follow these strict rules:
         pdfContext: tellMeMatch[1].trim()
       }
     }
-    
+
     // No PDF context found
     return {
       mainQuestion: textContent.trim()
@@ -3265,33 +2493,33 @@ Follow these strict rules:
     if (!selection || selection.rangeCount === 0) {
       return null
     }
-    
+
     const selectedText = selection.toString().trim()
     if (!selectedText) {
       return null
     }
-    
+
     // Check if the selection is within a message content area
     const range = selection.getRangeAt(0)
     const commonAncestor = range.commonAncestorContainer
-    
+
     // Check if selection is within a message (not in buttons or other UI elements)
     const messageElement = commonAncestor.nodeType === Node.TEXT_NODE
       ? commonAncestor.parentElement?.closest('.message-assistant, .message-user')
       : (commonAncestor as Element)?.closest('.message-assistant, .message-user')
-    
+
     if (messageElement) {
       return selectedText
     }
-    
+
     return null
   }
 
   const handleClearChat = () => {
     if (clearConfirming) {
       // Second click: actually clear
-    setMessages([])
-    setError(null)
+      setMessages([])
+      setError(null)
       setClearConfirming(false)
       if (clearConfirmTimeoutRef.current) {
         clearTimeout(clearConfirmTimeoutRef.current)
@@ -3326,12 +2554,12 @@ Follow these strict rules:
           <div className="warning-content">
             <span>⚠️ Groq API key not configured</span>
             <span className="warning-hint">
-              {user?.role === 'admin' 
+              {user?.role === 'admin'
                 ? 'Admin API key not configured on server'
                 : 'Add your API key in Settings (click the gear icon)'}
             </span>
           </div>
-          <button 
+          <button
             className="api-key-refresh-button"
             onClick={(e) => {
               e.preventDefault()
@@ -3348,135 +2576,135 @@ Follow these strict rules:
           </button>
         </div>
       )}
-      
+
       {layout === 'floating' && (
         <div className={`model-selector-bar ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
-        <div className="model-selector-wrapper" ref={modelSelectorRef}>
-          <div className="model-mode-toggle-container">
-            <ModelModeToggle
-              mode={modelMode}
-              onModeChange={handleModeChange}
-              disabled={apiKeyMissing}
-            />
-          </div>
-          {isVisionModel() && (
-            <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleImageUpload}
-                style={{ display: 'none' }}
-              />
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  fileInputRef.current?.click()
-                }}
-                className="image-upload-button"
-                title="Upload images"
+          <div className="model-selector-wrapper" ref={modelSelectorRef}>
+            <div className="model-mode-toggle-container">
+              <ModelModeToggle
+                mode={modelMode}
+                onModeChange={handleModeChange}
                 disabled={apiKeyMissing}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <polyline points="21 15 16 10 5 21" />
-                </svg>
-                <span className="image-upload-text">Image</span>
-              </button>
-            </>
-          )}
-        </div>
-        <div className="header-actions">
-        {messages.length > 0 && (
-          <button onClick={handleClearChat} className={`clear-button ${clearConfirming ? 'confirming' : ''}`} title={clearConfirming ? 'Click again to confirm' : 'Clear chat'}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 6h18" />
-              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-            </svg>
-            <span className="clear-button-text">{clearConfirming ? 'Confirm' : 'Clear'}</span>
-          </button>
-        )}
-          {layout === 'floating' && (
-            <>
-        <button
-          onClick={onToggleLayout}
-          className="layout-toggle-button"
-          title={layout === 'floating' ? 'Switch to split layout' : 'Switch to floating layout'}
-          aria-label={layout === 'floating' ? 'Switch to split layout' : 'Switch to floating layout'}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            {layout === 'floating' ? (
+              />
+            </div>
+            {isVisionModel() && (
               <>
-                <rect x="3" y="3" width="7" height="7" />
-                <rect x="14" y="3" width="7" height="7" />
-                <rect x="14" y="14" width="7" height="7" />
-                <line x1="10" y1="3" x2="10" y2="10" />
-                <line x1="3" y1="10" x2="10" y2="10" />
-              </>
-            ) : (
-              <>
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="9" y1="3" x2="9" y2="21" />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageUpload}
+                  style={{ display: 'none' }}
+                />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    fileInputRef.current?.click()
+                  }}
+                  className="image-upload-button"
+                  title="Upload images"
+                  disabled={apiKeyMissing}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  <span className="image-upload-text">Image</span>
+                </button>
               </>
             )}
-          </svg>
-        </button>
-          <button
-            onClick={() => {
-              if (!isCollapsed) {
-                // About to collapse: save current scroll position
-                if (messagesContainerRef.current) {
-                  setSavedScrollPosition(messagesContainerRef.current.scrollTop)
-                }
-              }
-              setIsCollapsed(!isCollapsed)
-            }}
-            className="collapse-button"
-            title={isCollapsed ? 'Expand chat' : 'Collapse chat'}
-            aria-label={isCollapsed ? 'Expand chat' : 'Collapse chat'}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.3s' }}
-            >
-              <path d="M18 15l-6-6-6 6" />
-            </svg>
-          </button>
-            </>
-        )}
+          </div>
+          <div className="header-actions">
+            {messages.length > 0 && (
+              <button onClick={handleClearChat} className={`clear-button ${clearConfirming ? 'confirming' : ''}`} title={clearConfirming ? 'Click again to confirm' : 'Clear chat'}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </svg>
+                <span className="clear-button-text">{clearConfirming ? 'Confirm' : 'Clear'}</span>
+              </button>
+            )}
+            {layout === 'floating' && (
+              <>
+                <button
+                  onClick={onToggleLayout}
+                  className="layout-toggle-button"
+                  title={layout === 'floating' ? 'Switch to split layout' : 'Switch to floating layout'}
+                  aria-label={layout === 'floating' ? 'Switch to split layout' : 'Switch to floating layout'}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    {layout === 'floating' ? (
+                      <>
+                        <rect x="3" y="3" width="7" height="7" />
+                        <rect x="14" y="3" width="7" height="7" />
+                        <rect x="14" y="14" width="7" height="7" />
+                        <line x1="10" y1="3" x2="10" y2="10" />
+                        <line x1="3" y1="10" x2="10" y2="10" />
+                      </>
+                    ) : (
+                      <>
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <line x1="9" y1="3" x2="9" y2="21" />
+                      </>
+                    )}
+                  </svg>
+                </button>
+                <button
+                  onClick={() => {
+                    if (!isCollapsed) {
+                      // About to collapse: save current scroll position
+                      if (messagesContainerRef.current) {
+                        setSavedScrollPosition(messagesContainerRef.current.scrollTop)
+                      }
+                    }
+                    setIsCollapsed(!isCollapsed)
+                  }}
+                  className="collapse-button"
+                  title={isCollapsed ? 'Expand chat' : 'Collapse chat'}
+                  aria-label={isCollapsed ? 'Expand chat' : 'Collapse chat'}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.3s' }}
+                  >
+                    <path d="M18 15l-6-6-6 6" />
+                  </svg>
+                </button>
+              </>
+            )}
+          </div>
         </div>
-      </div>
       )}
 
-      <div 
+      <div
         ref={chatInnerRef}
         className={`chatgpt-inner ${theme === 'dark' ? 'theme-dark' : 'theme-light'} ${isCollapsed && layout === 'floating' ? 'collapsed' : ''}`}
         style={{
-          ...(enlargedImageMaxHeight 
-            ? { maxHeight: `${enlargedImageMaxHeight}px` } 
-            : layout === 'floating' && !isCollapsed && dynamicMaxHeight 
-              ? { maxHeight: `${dynamicMaxHeight}px` } 
+          ...(enlargedImageMaxHeight
+            ? { maxHeight: `${enlargedImageMaxHeight}px` }
+            : layout === 'floating' && !isCollapsed && dynamicMaxHeight
+              ? { maxHeight: `${dynamicMaxHeight}px` }
               : {})
         }}
       >
@@ -3486,9 +2714,9 @@ Follow these strict rules:
               Selected Text: {selectedText.length > 20 ? `${selectedText.substring(0, 20)}...` : selectedText}
             </span>
             <div className="banner-buttons">
-            <button onClick={handleUseSelectedText} className="use-text-button">
+              <button onClick={handleUseSelectedText} className="use-text-button">
                 Tell me more
-            </button>
+              </button>
               {onClearSelectedText && (
                 <button onClick={onClearSelectedText} className="close-text-button" title="Clear selection">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3501,157 +2729,202 @@ Follow these strict rules:
           </div>
         )}
 
-      {(!isCollapsed || layout === 'split') && (
-        <div ref={messagesContainerRef} className="chatgpt-messages">
-          {messages.length === 0 && (
-            <div className="welcome-screen">
-              <div className="welcome-icon">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z"
-                    fill="#10a37f"
-                    opacity="0.1"
-                  />
-                  <path
-                    d="M6 9H18M6 13H14"
-                    stroke="#10a37f"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </div>
-              <h3>How can I help you today?</h3>
-              <p>Ask me anything about your PDF, or select text to get context-specific answers.</p>
-            </div>
-          )}
-        {messages.map((message, index) => {
-          // Check if this is the last assistant message
-          const isLastAssistantMessage = message.role === 'assistant' && 
-            index === messages.length - 1
-          
-          return (
-          <div
-            key={message.id}
-            className={`message ${message.role === 'user' ? 'message-user' : 'message-assistant'}`}
-          >
-            <div className="message-avatar">
-              {message.role === 'user' ? (
-                <div className="avatar-user">
-                  {user?.picture ? (
-                    <img 
-                      src={user.picture} 
-                      alt={user.name || user.email}
-                      crossOrigin="anonymous"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => {
-                        // If image fails to load, show fallback
-                        const target = e.target as HTMLImageElement
-                        target.style.display = 'none'
-                        const parent = target.parentElement
-                        if (parent) {
-                          // Remove any existing span
-                          const existingSpan = parent.querySelector('span.avatar-fallback')
-                          if (existingSpan) {
-                            existingSpan.remove()
-                          }
-                          // Add fallback
-                          const fallback = document.createElement('span')
-                          fallback.className = 'avatar-fallback'
-                          fallback.textContent = user.name?.[0]?.toUpperCase() || user.email[0].toUpperCase()
-                          parent.appendChild(fallback)
-                        }
-                      }}
+        {(!isCollapsed || layout === 'split') && (
+          <div ref={messagesContainerRef} className="chatgpt-messages">
+            {messages.length === 0 && (
+              <div className="welcome-screen">
+                <div className="welcome-icon">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z"
+                      fill="#10a37f"
+                      opacity="0.1"
                     />
-                  ) : (
-                    <span className="avatar-fallback">
-                      {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
-                    </span>
-                  )}
+                    <path
+                      d="M6 9H18M6 13H14"
+                      stroke="#10a37f"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
                 </div>
-              ) : (
-                <div className="avatar-assistant">
-                  <img 
-                    src="/chatnote-icon.svg" 
-                    alt="ChatNote"
-                    className="assistant-avatar-img"
-                    onError={(e) => {
-                      // If image fails to load, show fallback SVG
-                      const target = e.target as HTMLImageElement
-                      target.style.display = 'none'
-                      const parent = target.parentElement
-                      if (parent) {
-                        // Remove any existing fallback
-                        const existingFallback = parent.querySelector('svg.avatar-fallback-svg')
-                        if (existingFallback) {
-                          existingFallback.remove()
-                        }
-                        // Add fallback SVG
-                        const fallback = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-                        fallback.setAttribute('width', '32')
-                        fallback.setAttribute('height', '32')
-                        fallback.setAttribute('viewBox', '0 0 24 24')
-                        fallback.setAttribute('fill', 'none')
-                        fallback.setAttribute('class', 'avatar-fallback-svg')
-                        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-                        path.setAttribute('d', 'M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z')
-                        path.setAttribute('fill', 'currentColor')
-                        fallback.appendChild(path)
-                        parent.appendChild(fallback)
-                      }
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-            <div className="message-content-wrapper">
-              <div className="message-content">
-                {message.role === 'assistant' && isLoading && !message.content && isLastAssistantMessage ? (
-                  <div className="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
-                ) : message.role === 'assistant' && message.content ? (
-                  <>
-                    {/* Show thinking process when in Reasoning or Advanced mode and thinking content exists */}
-                    {/* Note: thinking is preserved in chat history even when switching modes */}
-                    {(modelMode === 'reasoning' || modelMode === 'advanced') && message.thinking && message.thinking.trim().length > 0 ? (
-                      <div className="thinking-process-container">
-                        <button
-                          className={`thinking-toggle-button ${expandedThinking[message.id] ? 'expanded' : ''}`}
-                          onClick={() => {
-                            setExpandedThinking(prev => ({
-                              ...prev,
-                              [message.id]: !(prev[message.id] ?? false)
-                            }))
-                          }}
-                          title={expandedThinking[message.id] ? 'Collapse thinking' : 'Expand thinking'}
-                        >
-                          <svg 
-                            width="16" 
-                            height="16" 
-                            viewBox="0 0 24 24" 
-                            fill="none" 
-                            stroke="currentColor" 
-                            strokeWidth="2"
-                            style={{ 
-                              transform: expandedThinking[message.id] ? 'rotate(90deg)' : 'rotate(0deg)',
-                              transition: 'transform 0.2s'
+                <h3>How can I help you today?</h3>
+                <p>Ask me anything about your PDF, or select text to get context-specific answers.</p>
+              </div>
+            )}
+            {messages.map((message, index) => {
+              // Check if this is the last assistant message
+              const isLastAssistantMessage = message.role === 'assistant' &&
+                index === messages.length - 1
+
+              return (
+                <div
+                  key={message.id}
+                  className={`message ${message.role === 'user' ? 'message-user' : 'message-assistant'}`}
+                >
+                  <div className="message-avatar">
+                    {message.role === 'user' ? (
+                      <div className="avatar-user">
+                        {user?.picture ? (
+                          <img
+                            src={user.picture}
+                            alt={user.name || user.email}
+                            crossOrigin="anonymous"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              // If image fails to load, show fallback
+                              const target = e.target as HTMLImageElement
+                              target.style.display = 'none'
+                              const parent = target.parentElement
+                              if (parent) {
+                                // Remove any existing span
+                                const existingSpan = parent.querySelector('span.avatar-fallback')
+                                if (existingSpan) {
+                                  existingSpan.remove()
+                                }
+                                // Add fallback
+                                const fallback = document.createElement('span')
+                                fallback.className = 'avatar-fallback'
+                                fallback.textContent = user.name?.[0]?.toUpperCase() || user.email[0].toUpperCase()
+                                parent.appendChild(fallback)
+                              }
                             }}
-                          >
-                            <polyline points="9 18 15 12 9 6"></polyline>
-                          </svg>
-                          <span>Thinking Process</span>
-                          {isLoading && isLastAssistantMessage && !expandedThinking[message.id] && (
-                            <span style={{ marginLeft: '8px', fontSize: '12px', opacity: 0.7 }}>
-                              (generating...)
-                            </span>
-                          )}
-                        </button>
-                        {expandedThinking[message.id] && message.thinking ? (
-                          <div className="thinking-content expanded">
+                          />
+                        ) : (
+                          <span className="avatar-fallback">
+                            {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="avatar-assistant">
+                        <img
+                          src={chatNoteIcon}
+                          alt="ChatNote"
+                          className="assistant-avatar-img"
+                          onError={(e) => {
+                            // If image fails to load, show fallback SVG
+                            const target = e.target as HTMLImageElement
+                            target.style.display = 'none'
+                            const parent = target.parentElement
+                            if (parent) {
+                              // Remove any existing fallback
+                              const existingFallback = parent.querySelector('svg.avatar-fallback-svg')
+                              if (existingFallback) {
+                                existingFallback.remove()
+                              }
+                              // Add fallback SVG
+                              const fallback = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+                              fallback.setAttribute('width', '32')
+                              fallback.setAttribute('height', '32')
+                              fallback.setAttribute('viewBox', '0 0 24 24')
+                              fallback.setAttribute('fill', 'none')
+                              fallback.setAttribute('class', 'avatar-fallback-svg')
+                              const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+                              path.setAttribute('d', 'M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z')
+                              path.setAttribute('fill', 'currentColor')
+                              fallback.appendChild(path)
+                              parent.appendChild(fallback)
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="message-content-wrapper">
+                    <div className="message-content">
+                      {message.role === 'assistant' && isLoading && !message.content && isLastAssistantMessage ? (
+                        <div className="typing-indicator">
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                        </div>
+                      ) : message.role === 'assistant' && message.content ? (
+                        <>
+                          {/* Show thinking process when in Reasoning or Advanced mode and thinking content exists */}
+                          {/* Note: thinking is preserved in chat history even when switching modes */}
+                          {(modelMode === 'reasoning' || modelMode === 'advanced') && message.thinking && message.thinking.trim().length > 0 ? (
+                            <div className="thinking-process-container">
+                              <button
+                                className={`thinking-toggle-button ${expandedThinking[message.id] ? 'expanded' : ''}`}
+                                onClick={() => {
+                                  setExpandedThinking(prev => ({
+                                    ...prev,
+                                    [message.id]: !(prev[message.id] ?? false)
+                                  }))
+                                }}
+                                title={expandedThinking[message.id] ? 'Collapse thinking' : 'Expand thinking'}
+                              >
+                                <svg
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  style={{
+                                    transform: expandedThinking[message.id] ? 'rotate(90deg)' : 'rotate(0deg)',
+                                    transition: 'transform 0.2s'
+                                  }}
+                                >
+                                  <polyline points="9 18 15 12 9 6"></polyline>
+                                </svg>
+                                <span>Thinking Process</span>
+                                {isLoading && isLastAssistantMessage && !expandedThinking[message.id] && (
+                                  <span style={{ marginLeft: '8px', fontSize: '12px', opacity: 0.7 }}>
+                                    (generating...)
+                                  </span>
+                                )}
+                              </button>
+                              {expandedThinking[message.id] && message.thinking ? (
+                                <div className="thinking-content expanded">
+                                  <div className="markdown-content">
+                                    <ReactMarkdown
+                                      remarkPlugins={[remarkGfm, remarkMath]}
+                                      rehypePlugins={[[rehypeKatex, {
+                                        strict: false, // Don't throw on parse errors
+                                        throwOnError: false, // Don't throw on render errors
+                                        errorColor: '#cc0000',
+                                        macros: {},
+                                        fleqn: false,
+                                        output: 'html',
+                                        trust: false,
+                                      }]]}
+                                    >
+                                      {(() => {
+                                        try {
+                                          const processed = preprocessMathContent(message.thinking || '')
+
+                                          // Final safety check for thinking content too
+                                          if (processed.includes('\u2011')) {
+                                            return processed.replace(/\u2011/g, '-')
+                                          }
+
+                                          return processed || ''
+                                        } catch (error) {
+                                          console.error('Error preprocessing thinking content:', error)
+                                          const fallback = message.thinking || ''
+                                          // Even in error case, try to normalize
+                                          return fallback.replace(/\u2011/g, '-')
+                                        }
+                                      })()}
+                                    </ReactMarkdown>
+                                  </div>
+                                  {isLoading && isLastAssistantMessage && (
+                                    <div className="typing-indicator" style={{ marginTop: '12px' }}>
+                                      <span></span>
+                                      <span></span>
+                                      <span></span>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {/* Only show final response if we have content (not empty string) */}
+                          {message.content && (typeof message.content === 'string' ? message.content.trim().length > 0 : true) ? (
                             <div className="markdown-content">
-                              <ReactMarkdown 
+                              <ReactMarkdown
                                 remarkPlugins={[remarkGfm, remarkMath]}
                                 rehypePlugins={[[rehypeKatex, {
                                   strict: false, // Don't throw on parse errors
@@ -3662,740 +2935,702 @@ Follow these strict rules:
                                   output: 'html',
                                   trust: false,
                                 }]]}
+                                components={{
+                                  table: ({ children, ...props }) => (
+                                    <div className="table-scroll-wrapper">
+                                      <table {...props}>{children}</table>
+                                    </div>
+                                  ),
+                                  // Wrap math blocks in scrollable containers
+                                  div: ({ children, className, ...props }) => {
+                                    // Check if this is a math block (KaTeX renders block math in divs with katex-display)
+                                    // Only wrap if it's a katex-display div and not already wrapped
+                                    if (className && typeof className === 'string' &&
+                                      className.includes('katex-display') &&
+                                      !className.includes('math-scroll-wrapper')) {
+                                      // Wrap the katex-display div in a scrollable container
+                                      return (
+                                        <div className="math-scroll-wrapper">
+                                          <div className={className} {...props}>
+                                            {children}
+                                          </div>
+                                        </div>
+                                      )
+                                    }
+                                    // For all other divs, render normally
+                                    return <div {...props} className={className}>{children}</div>
+                                  },
+                                  // Ensure pre/code blocks can scroll (they already have overflow-x: auto, but let's make sure)
+                                  pre: ({ children, ...props }) => (
+                                    <pre className="code-scroll-wrapper" {...props}>
+                                      {children}
+                                    </pre>
+                                  ),
+                                }}
                               >
                                 {(() => {
                                   try {
-                                    const processed = preprocessMathContent(message.thinking || '')
-                                    
-                                    // Final safety check for thinking content too
-                                    if (processed.includes('\u2011')) {
-                                      return processed.replace(/\u2011/g, '-')
+                                    if (typeof message.content === 'string' && message.content) {
+                                      const processed = preprocessMathContent(message.content)
+
+                                      // Final safety check: ensure no non-breaking hyphens before passing to ReactMarkdown
+                                      if (processed.includes('\u2011')) {
+                                        // Force final normalization as emergency fallback
+                                        return processed.replace(/\u2011/g, '-')
+                                      }
+
+                                      return processed || ''
                                     }
-                                    
-                                    return processed || ''
+                                    return ''
                                   } catch (error) {
-                                    console.error('Error preprocessing thinking content:', error)
-                                    const fallback = message.thinking || ''
+                                    console.error('Error preprocessing message content:', error)
+                                    const fallback = typeof message.content === 'string' ? message.content : ''
                                     // Even in error case, try to normalize
                                     return fallback.replace(/\u2011/g, '-')
                                   }
                                 })()}
                               </ReactMarkdown>
                             </div>
-                            {isLoading && isLastAssistantMessage && (
-                              <div className="typing-indicator" style={{ marginTop: '12px' }}>
-                                <span></span>
-                                <span></span>
-                                <span></span>
-                              </div>
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {/* Only show final response if we have content (not empty string) */}
-                    {message.content && (typeof message.content === 'string' ? message.content.trim().length > 0 : true) ? (
-                  <div className="markdown-content">
-                    <ReactMarkdown 
-                      remarkPlugins={[remarkGfm, remarkMath]}
-                      rehypePlugins={[[rehypeKatex, {
-                        strict: false, // Don't throw on parse errors
-                        throwOnError: false, // Don't throw on render errors
-                        errorColor: '#cc0000',
-                        macros: {},
-                        fleqn: false,
-                        output: 'html',
-                        trust: false,
-                      }]]}
-                      components={{
-                        table: ({ children, ...props }) => (
-                          <div className="table-scroll-wrapper">
-                            <table {...props}>{children}</table>
-                          </div>
-                        ),
-                        // Wrap math blocks in scrollable containers
-                        div: ({ children, className, ...props }) => {
-                          // Check if this is a math block (KaTeX renders block math in divs with katex-display)
-                          // Only wrap if it's a katex-display div and not already wrapped
-                          if (className && typeof className === 'string' && 
-                              className.includes('katex-display') &&
-                              !className.includes('math-scroll-wrapper')) {
-                            // Wrap the katex-display div in a scrollable container
-                            return (
-                              <div className="math-scroll-wrapper">
-                                <div className={className} {...props}>
-                                {children}
-                                </div>
-                              </div>
-                            )
-                          }
-                          // For all other divs, render normally
-                          return <div {...props} className={className}>{children}</div>
-                        },
-                        // Ensure pre/code blocks can scroll (they already have overflow-x: auto, but let's make sure)
-                        pre: ({ children, ...props }) => (
-                          <pre className="code-scroll-wrapper" {...props}>
-                            {children}
-                          </pre>
-                        ),
-                      }}
-                    >
-                      {(() => {
-                        try {
-                          if (typeof message.content === 'string' && message.content) {
-                            const processed = preprocessMathContent(message.content)
-                            
-                            // Final safety check: ensure no non-breaking hyphens before passing to ReactMarkdown
-                            if (processed.includes('\u2011')) {
-                              // Force final normalization as emergency fallback
-                              return processed.replace(/\u2011/g, '-')
-                            }
-                            
-                            return processed || ''
-                          }
-                          return ''
-                        } catch (error) {
-                          console.error('Error preprocessing message content:', error)
-                          const fallback = typeof message.content === 'string' ? message.content : ''
-                          // Even in error case, try to normalize
-                          return fallback.replace(/\u2011/g, '-')
-                        }
-                      })()}
-                    </ReactMarkdown>
-                  </div>
-                    ) : null}
-                  </>
-                ) : message.role === 'user' ? (
-                  <div className="user-message-content">
-                    {Array.isArray(message.content) ? (
-                      <>
-                        {(() => {
-                          const cleanedContent = removeInstructions(message.content) as Array<{ type: string; text?: string; image_url?: { url: string } }>
-                          const textItems = cleanedContent.filter(item => item.type === 'text')
-                          const imageItems = cleanedContent.filter(item => item.type === 'image_url')
-                          const scrollState = messageScrollStates[message.id] || { canScrollLeft: false, canScrollRight: false }
-                          
-                          // Parse text content to separate main question and PDF context
-                          const fullText = textItems.map(item => item.text || '').join('\n')
-                          const parsed = parseUserMessage(fullText)
-                          
-                          return (
+                          ) : null}
+                        </>
+                      ) : message.role === 'user' ? (
+                        <div className="user-message-content">
+                          {Array.isArray(message.content) ? (
                             <>
-                              {/* Main question */}
-                              {parsed.mainQuestion && (
-                                <div className="message-text">{parsed.mainQuestion}</div>
-                              )}
-                              
-                              {/* PDF Context - Collapsible */}
-                              {parsed.pdfContext && (
-                                <div className="pdf-context-container">
-                                  <button
-                                    className={`pdf-context-toggle ${expandedPdfContext[message.id] ? 'expanded' : ''}`}
-                                    onClick={() => {
-                                      setExpandedPdfContext(prev => ({
-                                        ...prev,
-                                        [message.id]: !(prev[message.id] ?? false)
-                                      }))
-                                    }}
-                                    title={expandedPdfContext[message.id] ? 'Collapse PDF context' : 'Expand PDF context'}
-                                  >
-                                    <svg 
-                                      width="16" 
-                                      height="16" 
-                                      viewBox="0 0 24 24" 
-                                      fill="none" 
-                                      stroke="currentColor" 
-                                      strokeWidth="2"
-                                      style={{ 
-                                        transform: expandedPdfContext[message.id] ? 'rotate(90deg)' : 'rotate(0deg)',
-                                        transition: 'transform 0.2s'
-                                      }}
-                                    >
-                                      <polyline points="9 18 15 12 9 6"></polyline>
-                                    </svg>
-                                    <span>Context from PDF</span>
-                                  </button>
-                                  {expandedPdfContext[message.id] && (
-                                    <div className="pdf-context-content">
-                                      <div className="message-text">{parsed.pdfContext}</div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              
-                              {/* Fallback: if no parsing worked, show original text */}
-                              {!parsed.mainQuestion && !parsed.pdfContext && textItems.map((item, idx) => (
-                                <div key={`text-${idx}`} className="message-text">{item.text}</div>
-                              ))}
-                              {imageItems.length > 0 && (
-                                <>
-                                  {/* Render enlarged image outside scroll container if any image is enlarged */}
-                                  {imageItems.map((item, idx) => {
-                                    const imageUrl = item.image_url?.url
-                                    if (!imageUrl) return null
-                                    const imageId = `${message.id}-${idx}`
-                                    const isEnlarged = enlargedImage === imageId
-                                    if (isEnlarged) {
-                                      return (
-                                        <div key={`enlarged-${idx}`} className="message-image-enlarged-container">
-                                          <div className="message-image enlarged">
-                                            <div className="message-image-wrapper">
-                                              <img
-                                                src={imageUrl}
-                                                alt="Uploaded"
-                                                onClick={(e) => {
-                                                  e.stopPropagation()
-                                                  setEnlargedImage(null)
-                                                }}
-                                              />
-                                            </div>
-                                          </div>
-                                        </div>
-                                      )
-                                    }
-                                    return null
-                                  })}
-                                  {/* Render scrollable container with non-enlarged images */}
-                                  <div className="message-images-wrapper">
-                                    {scrollState.canScrollLeft && (
-                                      <button
-                                        className="message-image-scroll-button message-image-scroll-left"
-                                        onClick={() => scrollMessageImages(message.id, 'left')}
-                                        title="Scroll left"
-                                      >
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <polyline points="15 18 9 12 15 6"></polyline>
-                                        </svg>
-                                      </button>
+                              {(() => {
+                                const cleanedContent = removeInstructions(message.content) as Array<{ type: string; text?: string; image_url?: { url: string } }>
+                                const textItems = cleanedContent.filter(item => item.type === 'text')
+                                const imageItems = cleanedContent.filter(item => item.type === 'image_url')
+                                const scrollState = messageScrollStates[message.id] || { canScrollLeft: false, canScrollRight: false }
+
+                                // Parse text content to separate main question and PDF context
+                                const fullText = textItems.map(item => item.text || '').join('\n')
+                                const parsed = parseUserMessage(fullText)
+
+                                return (
+                                  <>
+                                    {/* Main question */}
+                                    {parsed.mainQuestion && (
+                                      <div className="message-text">{parsed.mainQuestion}</div>
                                     )}
-                                    <div
-                                      ref={(el) => {
-                                        messageImagesRefs.current[message.id] = el
-                                        if (el) {
-                                          // Check scroll state after ref is set
-                                          setTimeout(() => checkMessageScrollButtons(message.id), 0)
-                                        }
-                                      }}
-                                      className="message-images-container"
-                                      onScroll={() => checkMessageScrollButtons(message.id)}
-                                    >
-                                      {imageItems.map((item, idx) => {
-                                        const imageUrl = item.image_url?.url
-                                        if (!imageUrl) return null
-                                        const imageId = `${message.id}-${idx}`
-                                        const isEnlarged = enlargedImage === imageId
-                                        
-                                        // Skip enlarged images in scroll container
-                                        if (isEnlarged) return null
-                                        
-                                        return (
-                                          <div key={idx} className="message-image-item">
-                                            <div className="message-image">
-                                              <div className="message-image-wrapper">
-                                                <img
-                                                  src={imageUrl}
-                                                  alt="Uploaded"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    setEnlargedImage(imageId)
-                                                  }}
-                                                />
-                                                <div
-                                                  className="image-magnifier"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    setEnlargedImage(imageId)
-                                                  }}
-                                                  title="Click to enlarge"
-                                                >
-                                                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                    <circle cx="11" cy="11" r="8"></circle>
-                                                    <path d="m21 21-4.35-4.35"></path>
-                                                    <circle cx="11" cy="11" r="3"></circle>
-                                                  </svg>
+
+                                    {/* PDF Context - Collapsible */}
+                                    {parsed.pdfContext && (
+                                      <div className="pdf-context-container">
+                                        <button
+                                          className={`pdf-context-toggle ${expandedPdfContext[message.id] ? 'expanded' : ''}`}
+                                          onClick={() => {
+                                            setExpandedPdfContext(prev => ({
+                                              ...prev,
+                                              [message.id]: !(prev[message.id] ?? false)
+                                            }))
+                                          }}
+                                          title={expandedPdfContext[message.id] ? 'Collapse PDF context' : 'Expand PDF context'}
+                                        >
+                                          <svg
+                                            width="16"
+                                            height="16"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            style={{
+                                              transform: expandedPdfContext[message.id] ? 'rotate(90deg)' : 'rotate(0deg)',
+                                              transition: 'transform 0.2s'
+                                            }}
+                                          >
+                                            <polyline points="9 18 15 12 9 6"></polyline>
+                                          </svg>
+                                          <span>Context from PDF</span>
+                                        </button>
+                                        {expandedPdfContext[message.id] && (
+                                          <div className="pdf-context-content">
+                                            <div className="message-text">{parsed.pdfContext}</div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Fallback: if no parsing worked, show original text */}
+                                    {!parsed.mainQuestion && !parsed.pdfContext && textItems.map((item, idx) => (
+                                      <div key={`text-${idx}`} className="message-text">{item.text}</div>
+                                    ))}
+                                    {imageItems.length > 0 && (
+                                      <>
+                                        {/* Render enlarged image outside scroll container if any image is enlarged */}
+                                        {imageItems.map((item, idx) => {
+                                          const imageUrl = item.image_url?.url
+                                          if (!imageUrl) return null
+                                          const imageId = `${message.id}-${idx}`
+                                          const isEnlarged = enlargedImage === imageId
+                                          if (isEnlarged) {
+                                            return (
+                                              <div key={`enlarged-${idx}`} className="message-image-enlarged-container">
+                                                <div className="message-image enlarged">
+                                                  <div className="message-image-wrapper">
+                                                    <img
+                                                      src={imageUrl}
+                                                      alt="Uploaded"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        setEnlargedImage(null)
+                                                      }}
+                                                    />
+                                                  </div>
                                                 </div>
                                               </div>
-                                            </div>
+                                            )
+                                          }
+                                          return null
+                                        })}
+                                        {/* Render scrollable container with non-enlarged images */}
+                                        <div className="message-images-wrapper">
+                                          {scrollState.canScrollLeft && (
+                                            <button
+                                              className="message-image-scroll-button message-image-scroll-left"
+                                              onClick={() => scrollMessageImages(message.id, 'left')}
+                                              title="Scroll left"
+                                            >
+                                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <polyline points="15 18 9 12 15 6"></polyline>
+                                              </svg>
+                                            </button>
+                                          )}
+                                          <div
+                                            ref={(el) => {
+                                              messageImagesRefs.current[message.id] = el
+                                              if (el) {
+                                                // Check scroll state after ref is set
+                                                setTimeout(() => checkMessageScrollButtons(message.id), 0)
+                                              }
+                                            }}
+                                            className="message-images-container"
+                                            onScroll={() => checkMessageScrollButtons(message.id)}
+                                          >
+                                            {imageItems.map((item, idx) => {
+                                              const imageUrl = item.image_url?.url
+                                              if (!imageUrl) return null
+                                              const imageId = `${message.id}-${idx}`
+                                              const isEnlarged = enlargedImage === imageId
+
+                                              // Skip enlarged images in scroll container
+                                              if (isEnlarged) return null
+
+                                              return (
+                                                <div key={idx} className="message-image-item">
+                                                  <div className="message-image">
+                                                    <div className="message-image-wrapper">
+                                                      <img
+                                                        src={imageUrl}
+                                                        alt="Uploaded"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation()
+                                                          setEnlargedImage(imageId)
+                                                        }}
+                                                      />
+                                                      <div
+                                                        className="image-magnifier"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation()
+                                                          setEnlargedImage(imageId)
+                                                        }}
+                                                        title="Click to enlarge"
+                                                      >
+                                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                          <circle cx="11" cy="11" r="8"></circle>
+                                                          <path d="m21 21-4.35-4.35"></path>
+                                                          <circle cx="11" cy="11" r="3"></circle>
+                                                        </svg>
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              )
+                                            })}
                                           </div>
-                                        )
-                                      })}
-                                    </div>
-                                    {scrollState.canScrollRight && (
+                                          {scrollState.canScrollRight && (
+                                            <button
+                                              className="message-image-scroll-button message-image-scroll-right"
+                                              onClick={() => scrollMessageImages(message.id, 'right')}
+                                              title="Scroll right"
+                                            >
+                                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <polyline points="9 18 15 12 9 6"></polyline>
+                                              </svg>
+                                            </button>
+                                          )}
+                                        </div>
+                                      </>
+                                    )}
+                                  </>
+                                )
+                              })()}
+                            </>
+                          ) : (
+                            (() => {
+                              const content = typeof message.content === 'string' ? removeInstructions(message.content) as string : ''
+                              const parsed = parseUserMessage(content)
+
+                              return (
+                                <>
+                                  {/* Main question */}
+                                  {parsed.mainQuestion && (
+                                    <div className="message-text">{parsed.mainQuestion}</div>
+                                  )}
+
+                                  {/* PDF Context - Collapsible */}
+                                  {parsed.pdfContext && (
+                                    <div className="pdf-context-container">
                                       <button
-                                        className="message-image-scroll-button message-image-scroll-right"
-                                        onClick={() => scrollMessageImages(message.id, 'right')}
-                                        title="Scroll right"
+                                        className={`pdf-context-toggle ${expandedPdfContext[message.id] ? 'expanded' : ''}`}
+                                        onClick={() => {
+                                          setExpandedPdfContext(prev => ({
+                                            ...prev,
+                                            [message.id]: !(prev[message.id] ?? false)
+                                          }))
+                                        }}
+                                        title={expandedPdfContext[message.id] ? 'Collapse PDF context' : 'Expand PDF context'}
                                       >
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <svg
+                                          width="16"
+                                          height="16"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          style={{
+                                            transform: expandedPdfContext[message.id] ? 'rotate(90deg)' : 'rotate(0deg)',
+                                            transition: 'transform 0.2s'
+                                          }}
+                                        >
                                           <polyline points="9 18 15 12 9 6"></polyline>
                                         </svg>
+                                        <span>Context from PDF</span>
                                       </button>
-                                    )}
-                                  </div>
+                                      {expandedPdfContext[message.id] && (
+                                        <div className="pdf-context-content">
+                                          <div className="message-text">{parsed.pdfContext}</div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Fallback: if no parsing worked, show original content */}
+                                  {!parsed.mainQuestion && !parsed.pdfContext && (
+                                    <div className="message-text">{content}</div>
+                                  )}
                                 </>
-                              )}
-                            </>
-                          )
-                        })()}
-                      </>
-                    ) : (
-                      (() => {
-                        const content = typeof message.content === 'string' ? removeInstructions(message.content) as string : ''
-                        const parsed = parseUserMessage(content)
-                        
-                        return (
+                              )
+                            })()
+                          )}
+                        </div>
+                      ) : (
+                        <div className="markdown-content">{typeof message.content === 'string' ? message.content : ''}</div>
+                      )}
+                    </div>
+                    {message.role === 'assistant' && message.content && (
+                      <div className="message-actions">
+                        <button
+                          className="message-action-button copy-button"
+                          onClick={async () => {
+                            try {
+                              const textToCopy = typeof message.content === 'string'
+                                ? message.content
+                                : Array.isArray(message.content)
+                                  ? message.content.filter(item => item.type === 'text').map(item => (item as { type: 'text'; text: string }).text).join('\n')
+                                  : ''
+                              await navigator.clipboard.writeText(textToCopy)
+                              // You could add a toast notification here
+                            } catch (err) {
+                              console.error('Failed to copy:', err)
+                            }
+                          }}
+                          title="Copy to clipboard"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                          <span className="message-action-button-text">Copy</span>
+                        </button>
+                        {pdfText && pdfText.trim().length > 0 && (
                           <>
-                            {/* Main question */}
-                            {parsed.mainQuestion && (
-                              <div className="message-text">{parsed.mainQuestion}</div>
-                            )}
-                            
-                            {/* PDF Context - Collapsible */}
-                            {parsed.pdfContext && (
-                              <div className="pdf-context-container">
-                                <button
-                                  className={`pdf-context-toggle ${expandedPdfContext[message.id] ? 'expanded' : ''}`}
-                                  onClick={() => {
-                                    setExpandedPdfContext(prev => ({
-                                      ...prev,
-                                      [message.id]: !(prev[message.id] ?? false)
-                                    }))
-                                  }}
-                                  title={expandedPdfContext[message.id] ? 'Collapse PDF context' : 'Expand PDF context'}
-                                >
-                                  <svg 
-                                    width="16" 
-                                    height="16" 
-                                    viewBox="0 0 24 24" 
-                                    fill="none" 
-                                    stroke="currentColor" 
-                                    strokeWidth="2"
-                                    style={{ 
-                                      transform: expandedPdfContext[message.id] ? 'rotate(90deg)' : 'rotate(0deg)',
-                                      transition: 'transform 0.2s'
-                                    }}
-                                  >
-                                    <polyline points="9 18 15 12 9 6"></polyline>
-                                  </svg>
-                                  <span>Context from PDF</span>
-                                </button>
-                                {expandedPdfContext[message.id] && (
-                                  <div className="pdf-context-content">
-                                    <div className="message-text">{parsed.pdfContext}</div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            
-                            {/* Fallback: if no parsing worked, show original content */}
-                            {!parsed.mainQuestion && !parsed.pdfContext && (
-                              <div className="message-text">{content}</div>
-                            )}
+                            <button
+                              className="message-action-button knowledge-note-button"
+                              onClick={() => {
+                                if (onCreateKnowledgeNote) {
+                                  // Check if user has selected text in chat history
+                                  const selectedTextInChat = getSelectedTextInChat()
+
+                                  // Use selected text if available, otherwise use full message content
+                                  let contentToSave = ''
+                                  if (selectedTextInChat) {
+                                    contentToSave = selectedTextInChat
+                                  } else {
+                                    contentToSave = typeof message.content === 'string'
+                                      ? message.content
+                                      : Array.isArray(message.content)
+                                        ? message.content.filter(item => item.type === 'text').map(item => (item as { type: 'text'; text: string }).text).join('\n')
+                                        : ''
+                                  }
+
+                                  // Use the selected text that was stored when the message was sent,
+                                  // not the current selectedText prop which might have changed
+                                  const linkedText = message.selectedTextAtSend || selectedText || undefined
+                                  
+                                  // Use the page number from when the message was sent, not the current page
+                                  // This ensures notes stick to the original selected text position
+                                  const notePageNumber = message.pageNumberAtSend || currentPageNumber
+                                  const noteTextYPosition = message.textYPositionAtSend
+
+                                  onCreateKnowledgeNote(
+                                    contentToSave,
+                                    linkedText,
+                                    notePageNumber,
+                                    noteTextYPosition,
+                                    message.id
+                                  )
+
+                                  // Auto-open knowledge notes panel if it's not open
+                                  if (onOpenKnowledgeNotes) {
+                                    onOpenKnowledgeNotes()
+                                  }
+                                }
+                              }}
+                              title="Create knowledge note"
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="16" y1="13" x2="8" y2="13" />
+                                <line x1="16" y1="17" x2="8" y2="17" />
+                                <polyline points="10 9 9 9 8 9" />
+                              </svg>
+                              <span className="message-action-button-text">Save Note</span>
+                            </button>
+                            <button
+                              className="message-action-button add-to-pdf-button"
+                              onClick={() => {
+                                if (onAddAnnotationToPDF) {
+                                  // Check if user has selected text in chat history
+                                  const selectedTextInChat = getSelectedTextInChat()
+
+                                  let finalResponse = ''
+                                  if (selectedTextInChat) {
+                                    // Use selected text if available
+                                    finalResponse = selectedTextInChat
+                                  } else {
+                                    // Extract final response without thinking process
+                                    if (typeof message.content === 'string') {
+                                      const { mainContent } = extractThinking(message.content)
+                                      finalResponse = mainContent
+                                    } else if (Array.isArray(message.content)) {
+                                      const textContent = message.content
+                                        .filter(item => item.type === 'text')
+                                        .map(item => (item as { type: 'text'; text: string }).text)
+                                        .join('\n')
+                                      const { mainContent } = extractThinking(textContent)
+                                      finalResponse = mainContent
+                                    }
+                                  }
+
+                                  // Get page number and text position
+                                  // Priority: 1) selected text page, 2) current viewing page, 3) fallback to page 1
+                                  const lastSelectedPosition = (window as any).__lastSelectedTextPosition
+                                  const pageNumber = lastSelectedPosition?.pageNumber || currentPageNumber || 1
+                                  const textYPosition = lastSelectedPosition?.textYPosition
+
+                                  if (finalResponse.trim()) {
+                                    onAddAnnotationToPDF(finalResponse, pageNumber, textYPosition)
+
+                                    // Auto-collapse chat history in floating layout
+                                    if (layout === 'floating') {
+                                      // Save scroll position before collapsing
+                                      if (messagesContainerRef.current) {
+                                        setSavedScrollPosition(messagesContainerRef.current.scrollTop)
+                                      }
+                                      setIsCollapsed(true)
+                                    }
+                                  }
+                                }
+                              }}
+                              title="Add response to PDF as text box"
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="12" y1="18" x2="12" y2="12" />
+                                <line x1="9" y1="15" x2="15" y2="15" />
+                              </svg>
+                              <span className="message-action-button-text">Add to PDF</span>
+                            </button>
                           </>
-                        )
-                      })()
+                        )}
+                        {/* Redo/Refresh button - always show */}
+                        <button
+                          className="message-action-button refresh-button"
+                          onClick={() => handleResendMessage(message.id)}
+                          title="Get a new response"
+                          disabled={isLoading}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                          </svg>
+                          <span className="message-action-button-text">Redo</span>
+                        </button>
+                        {/* Navigation arrows - only show if there are multiple responses */}
+                        {messageResponses[message.id] && messageResponses[message.id].length > 1 && (
+                          <>
+                            <button
+                              className="message-action-button nav-button-left"
+                              onClick={() => handleNavigateResponse(message.id, 'prev')}
+                              title="Previous response"
+                              disabled={!currentResponseIndex[message.id] || currentResponseIndex[message.id] === 0}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                              </svg>
+                            </button>
+                            <button
+                              className="message-action-button nav-button-right"
+                              onClick={() => handleNavigateResponse(message.id, 'next')}
+                              title="Next response"
+                              disabled={(() => {
+                                const responses = messageResponses[message.id] || []
+                                if (responses.length === 0) return true
+                                const currentIdx = currentResponseIndex[message.id] ?? (responses.length - 1)
+                                return currentIdx >= (responses.length - 1)
+                              })()}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                              </svg>
+                            </button>
+                            {/* Response counter */}
+                            <span className="response-counter">
+                              {(currentResponseIndex[message.id] ?? (messageResponses[message.id].length - 1)) + 1} / {messageResponses[message.id].length}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
-                ) : (
-                  <div className="markdown-content">{typeof message.content === 'string' ? message.content : ''}</div>
-                )}
-              </div>
-              {message.role === 'assistant' && message.content && (
-                <div className="message-actions">
-                  <button
-                    className="message-action-button copy-button"
-                    onClick={async () => {
-                      try {
-                        const textToCopy = typeof message.content === 'string' 
-                          ? message.content 
-                          : Array.isArray(message.content)
-                            ? message.content.filter(item => item.type === 'text').map(item => (item as { type: 'text'; text: string }).text).join('\n')
-                            : ''
-                        await navigator.clipboard.writeText(textToCopy)
-                        // You could add a toast notification here
-                      } catch (err) {
-                        console.error('Failed to copy:', err)
-                      }
-                    }}
-                    title="Copy to clipboard"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                    </svg>
-                    <span className="message-action-button-text">Copy</span>
-                  </button>
-                  {pdfText && pdfText.trim().length > 0 && (
-                    <>
-                  <button
-                    className="message-action-button knowledge-note-button"
-                      onClick={() => {
-                        if (onCreateKnowledgeNote) {
-                          // Check if user has selected text in chat history
-                          const selectedTextInChat = getSelectedTextInChat()
-                          
-                          // Use selected text if available, otherwise use full message content
-                          let contentToSave = ''
-                          if (selectedTextInChat) {
-                            contentToSave = selectedTextInChat
-                          } else {
-                            contentToSave = typeof message.content === 'string' 
-                            ? message.content 
-                            : Array.isArray(message.content)
-                              ? message.content.filter(item => item.type === 'text').map(item => (item as { type: 'text'; text: string }).text).join('\n')
-                              : ''
-                          }
-                          
-                          // Use the selected text that was stored when the message was sent,
-                          // not the current selectedText prop which might have changed
-                          const linkedText = message.selectedTextAtSend || selectedText || undefined
-                          
-                          onCreateKnowledgeNote(
-                            contentToSave,
-                            linkedText,
-                            currentPageNumber,
-                            message.id
-                          )
-                          
-                          // Auto-open knowledge notes panel if it's not open
-                          if (onOpenKnowledgeNotes) {
-                            onOpenKnowledgeNotes()
-                          }
-                        }
-                      }}
-                    title="Create knowledge note"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                      <line x1="16" y1="13" x2="8" y2="13" />
-                      <line x1="16" y1="17" x2="8" y2="17" />
-                      <polyline points="10 9 9 9 8 9" />
-                    </svg>
-                    <span className="message-action-button-text">Save Note</span>
-                  </button>
-                      <button
-                        className="message-action-button add-to-pdf-button"
-                        onClick={() => {
-                          if (onAddAnnotationToPDF) {
-                            // Check if user has selected text in chat history
-                            const selectedTextInChat = getSelectedTextInChat()
-                            
-                            let finalResponse = ''
-                            if (selectedTextInChat) {
-                              // Use selected text if available
-                              finalResponse = selectedTextInChat
-                            } else {
-                              // Extract final response without thinking process
-                              if (typeof message.content === 'string') {
-                                const { mainContent } = extractThinking(message.content)
-                                finalResponse = mainContent
-                              } else if (Array.isArray(message.content)) {
-                                const textContent = message.content
-                                  .filter(item => item.type === 'text')
-                                  .map(item => (item as { type: 'text'; text: string }).text)
-                                  .join('\n')
-                                const { mainContent } = extractThinking(textContent)
-                                finalResponse = mainContent
-                              }
-                            }
-                            
-                            // Get page number and text position
-                            // Use selected text position if available, otherwise use current page
-                            const pageNumber = currentPageNumber || 1
-                            
-                            // Get textYPosition from lastSelectedTextPosition if available
-                            // We'll need to get this from the App component or use a global reference
-                            const textYPosition = (window as any).__lastSelectedTextPosition?.textYPosition
-                            
-                            if (finalResponse.trim()) {
-                              onAddAnnotationToPDF(finalResponse, pageNumber, textYPosition)
-                              
-                              // Auto-collapse chat history in floating layout
-                              if (layout === 'floating') {
-                                // Save scroll position before collapsing
-                                if (messagesContainerRef.current) {
-                                  setSavedScrollPosition(messagesContainerRef.current.scrollTop)
-                                }
-                                setIsCollapsed(true)
-                              }
-                            }
-                          }
-                        }}
-                        title="Add response to PDF as text box"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                          <polyline points="14 2 14 8 20 8" />
-                          <line x1="12" y1="18" x2="12" y2="12" />
-                          <line x1="9" y1="15" x2="15" y2="15" />
-                        </svg>
-                        <span className="message-action-button-text">Add to PDF</span>
-                      </button>
-                    </>
-                  )}
-                  {/* Redo/Refresh button - always show */}
-                  <button
-                    className="message-action-button refresh-button"
-                    onClick={() => handleResendMessage(message.id)}
-                    title="Get a new response"
-                    disabled={isLoading}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="23 4 23 10 17 10"></polyline>
-                      <polyline points="1 20 1 14 7 14"></polyline>
-                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                    </svg>
-                    <span className="message-action-button-text">Redo</span>
-                  </button>
-                  {/* Navigation arrows - only show if there are multiple responses */}
-                  {messageResponses[message.id] && messageResponses[message.id].length > 1 && (
-                    <>
-                      <button
-                        className="message-action-button nav-button-left"
-                        onClick={() => handleNavigateResponse(message.id, 'prev')}
-                        title="Previous response"
-                        disabled={!currentResponseIndex[message.id] || currentResponseIndex[message.id] === 0}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="15 18 9 12 15 6"></polyline>
-                        </svg>
-                      </button>
-                      <button
-                        className="message-action-button nav-button-right"
-                        onClick={() => handleNavigateResponse(message.id, 'next')}
-                        title="Next response"
-                        disabled={(() => {
-                          const responses = messageResponses[message.id] || []
-                          if (responses.length === 0) return true
-                          const currentIdx = currentResponseIndex[message.id] ?? (responses.length - 1)
-                          return currentIdx >= (responses.length - 1)
-                        })()}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="9 18 15 12 9 6"></polyline>
-                        </svg>
-                      </button>
-                      {/* Response counter */}
-                      <span className="response-counter">
-                        {(currentResponseIndex[message.id] ?? (messageResponses[message.id].length - 1)) + 1} / {messageResponses[message.id].length}
-                      </span>
-                    </>
-                  )}
-            </div>
-              )}
-          </div>
-          </div>
-        )})}
+                </div>
+              )
+            })}
 
-        {error && (
-          <div className="error-message">
-            <div className="error-icon">⚠️</div>
-            <div className="error-text">{error}</div>
+            {error && (
+              <div className="error-message">
+                <div className="error-icon">⚠️</div>
+                <div className="error-text">{error}</div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
           </div>
         )}
 
-          <div ref={messagesEndRef} />
-        </div>
-      )}
-
-          {/* Split layout: Warning bar above model selector */}
-          {!authLoading && !isAuthenticated && layout === 'split' && (
-            <div className="api-key-warning-split-top">
-              <span>🔐 Please sign in to use the chat feature</span>
+        {/* Split layout: Warning bar above model selector */}
+        {!authLoading && !isAuthenticated && layout === 'split' && (
+          <div className="api-key-warning-split-top">
+            <span>🔐 Please sign in to use the chat feature</span>
+            <span className="warning-hint">
+              Click "Sign in with Google" in the navigation bar
+            </span>
+          </div>
+        )}
+        {!authLoading && isAuthenticated && !isCheckingApiKey && apiKeyMissing && layout === 'split' && (
+          <div className="api-key-warning-split-top">
+            <div className="warning-content">
+              <span>⚠️ Groq API key not configured</span>
               <span className="warning-hint">
-                Click "Sign in with Google" in the navigation bar
+                {user?.role === 'admin'
+                  ? 'Admin API key not configured on server'
+                  : 'Add your API key in Settings (click the gear icon)'}
               </span>
             </div>
-          )}
-          {!authLoading && isAuthenticated && !isCheckingApiKey && apiKeyMissing && layout === 'split' && (
-            <div className="api-key-warning-split-top">
-              <div className="warning-content">
-                <span>⚠️ Groq API key not configured</span>
-                <span className="warning-hint">
-                  {user?.role === 'admin' 
-                    ? 'Admin API key not configured on server'
-                    : 'Add your API key in Settings (click the gear icon)'}
-                </span>
+            <button
+              className="api-key-refresh-button"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                checkApiKey()
+              }}
+              title="Refresh API key status"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <polyline points="1 20 1 14 7 14"></polyline>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Split layout: Model selector bar above input */}
+        {layout === 'split' && (
+          <>
+            <div className={`model-selector-bar ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
+              <div className="model-selector-wrapper" ref={modelSelectorRef}>
+                <div className="model-mode-toggle-container">
+                  <ModelModeToggle
+                    mode={modelMode}
+                    onModeChange={handleModeChange}
+                    disabled={apiKeyMissing || !isAuthenticated}
+                  />
+                </div>
+                {isVisionModel() && (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleImageUpload}
+                      style={{ display: 'none' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        fileInputRef.current?.click()
+                      }}
+                      className="image-upload-button"
+                      title="Upload images"
+                      disabled={apiKeyMissing || !isAuthenticated}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <polyline points="21 15 16 10 5 21" />
+                      </svg>
+                      <span className="image-upload-text">Image</span>
+                    </button>
+                  </>
+                )}
               </div>
-              <button 
-                className="api-key-refresh-button"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  checkApiKey()
-                }}
-                title="Refresh API key status"
+              {messages.length > 0 && (
+                <button onClick={handleClearChat} className={`clear-button ${clearConfirming ? 'confirming' : ''}`} title={clearConfirming ? 'Click again to confirm' : 'Clear chat'}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18" />
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                  </svg>
+                  <span className="clear-button-text">{clearConfirming ? 'Confirm' : 'Clear'}</span>
+                </button>
+              )}
+              <button
+                onClick={onToggleLayout}
+                className="layout-toggle-button"
+                title="Switch to floating layout"
+                aria-label="Switch to floating layout"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="23 4 23 10 17 10"></polyline>
-                  <polyline points="1 20 1 14 7 14"></polyline>
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" />
+                  <line x1="10" y1="3" x2="10" y2="10" />
+                  <line x1="3" y1="10" x2="10" y2="10" />
                 </svg>
               </button>
             </div>
-          )}
+          </>
+        )}
 
-          {/* Split layout: Model selector bar above input */}
-          {layout === 'split' && (
-            <>
-              <div className={`model-selector-bar ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
-                <div className="model-selector-wrapper" ref={modelSelectorRef}>
-                  <div className="model-mode-toggle-container">
-                    <ModelModeToggle
-                      mode={modelMode}
-                      onModeChange={handleModeChange}
-                      disabled={apiKeyMissing || !isAuthenticated}
-                    />
+
+        <div
+          className={`chatgpt-input-container`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {uploadedImages.length > 0 && (
+            <div className="uploaded-images-preview-wrapper">
+              {canScrollLeft && (
+                <button
+                  className="image-scroll-button image-scroll-left"
+                  onClick={() => scrollImages('left')}
+                  title="Scroll left"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                  </svg>
+                </button>
+              )}
+              <div
+                ref={imagesPreviewRef}
+                className="uploaded-images-preview"
+                onScroll={checkScrollButtons}
+              >
+                {uploadedImages.map((imageUrl, index) => (
+                  <div key={index} className="image-preview-item">
+                    <img src={imageUrl} alt={`Upload ${index + 1}`} />
+                    <button
+                      type="button"
+                      className="image-preview-remove"
+                      onClick={() => {
+                        setUploadedImages((prev) => prev.filter((_, i) => i !== index))
+                      }}
+                      title="Remove image"
+                    >
+                      ×
+                    </button>
                   </div>
-                  {isVisionModel() && (
-                    <>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={handleImageUpload}
-                        style={{ display: 'none' }}
-                      />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          fileInputRef.current?.click()
-                        }}
-                        className="image-upload-button"
-                        title="Upload images"
-                        disabled={apiKeyMissing || !isAuthenticated}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                          <circle cx="8.5" cy="8.5" r="1.5" />
-                          <polyline points="21 15 16 10 5 21" />
-                        </svg>
-                        <span className="image-upload-text">Image</span>
-                      </button>
-                    </>
-                  )}
-                </div>
-                {messages.length > 0 && (
-                  <button onClick={handleClearChat} className={`clear-button ${clearConfirming ? 'confirming' : ''}`} title={clearConfirming ? 'Click again to confirm' : 'Clear chat'}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 6h18" />
-                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                    </svg>
-                    <span className="clear-button-text">{clearConfirming ? 'Confirm' : 'Clear'}</span>
-                  </button>
-                )}
+                ))}
+              </div>
+              {canScrollRight && (
                 <button
-                  onClick={onToggleLayout}
-                  className="layout-toggle-button"
-                  title="Switch to floating layout"
-                  aria-label="Switch to floating layout"
+                  className="image-scroll-button image-scroll-right"
+                  onClick={() => scrollImages('right')}
+                  title="Scroll right"
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <rect x="3" y="3" width="7" height="7" />
-                    <rect x="14" y="3" width="7" height="7" />
-                    <rect x="14" y="14" width="7" height="7" />
-                    <line x1="10" y1="3" x2="10" y2="10" />
-                    <line x1="3" y1="10" x2="10" y2="10" />
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6"></polyline>
                   </svg>
                 </button>
-              </div>
-            </>
+              )}
+            </div>
           )}
-
-
-          <div 
-            className="chatgpt-input-container"
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
-            {uploadedImages.length > 0 && (
-              <div className="uploaded-images-preview-wrapper">
-                {canScrollLeft && (
-                  <button
-                    className="image-scroll-button image-scroll-left"
-                    onClick={() => scrollImages('left')}
-                    title="Scroll left"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="15 18 9 12 15 6"></polyline>
-                    </svg>
-                  </button>
-                )}
-                <div 
-                  ref={imagesPreviewRef}
-                  className="uploaded-images-preview"
-                  onScroll={checkScrollButtons}
-                >
-                  {uploadedImages.map((imageUrl, index) => (
-                    <div key={index} className="image-preview-item">
-                      <img src={imageUrl} alt={`Upload ${index + 1}`} />
-                      <button
-                        type="button"
-                        className="image-preview-remove"
-                        onClick={() => {
-                          setUploadedImages((prev) => prev.filter((_, i) => i !== index))
-                        }}
-                        title="Remove image"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                {canScrollRight && (
-                  <button
-                    className="image-scroll-button image-scroll-right"
-                    onClick={() => scrollImages('right')}
-                    title="Scroll right"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="9 18 15 12 9 6"></polyline>
-                    </svg>
-                  </button>
-                )}
-              </div>
-            )}
-            <div className={`input-wrapper ${isDraggingOver && isVisionModel() ? 'drag-over' : ''}`}>
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Ask a question..."
-                rows={1}
-                className="chatgpt-input"
-                disabled={isLoading || apiKeyMissing || !isAuthenticated}
-              />
-              {isLoading ? (
-                <button
-                  onClick={handlePause}
-                  className="send-button pause-button"
-                  title="Pause/Stop response"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                    <rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" />
-                    <rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" />
-                  </svg>
-                </button>
-              ) : (
+          <div className={`input-wrapper${isDraggingOver && isVisionModel() ? ' drag-over' : ''}${isInputFocused ? ` focus-${modelMode}` : ''}`}>
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              onFocus={() => setIsInputFocused(true)}
+              onBlur={() => setIsInputFocused(false)}
+              placeholder="Ask a question..."
+              rows={1}
+              className="chatgpt-input"
+              disabled={isLoading || apiKeyMissing || !isAuthenticated}
+            />
+            {isLoading ? (
+              <button
+                onClick={handlePause}
+                className="send-button pause-button"
+                title="Pause/Stop response"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" />
+                  <rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" />
+                </svg>
+              </button>
+            ) : (
               <button
                 onClick={handleSend}
-                  disabled={(!input.trim() && !selectedText && uploadedImages.length === 0) || apiKeyMissing || !isAuthenticated}
+                disabled={(!input.trim() && !selectedText && uploadedImages.length === 0) || apiKeyMissing || !isAuthenticated}
                 className="send-button"
                 title="Send message"
               >
@@ -4409,28 +3644,28 @@ Follow these strict rules:
                   />
                 </svg>
               </button>
-              )}
-            </div>
-          </div>
-
-          {/* Disclaimer - positioned below input bar */}
-          {layout === 'split' && (
-            <div className={`footer-text-outer split-footer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
-              <span className="footer-text">
-                AI responses may contain errors. Please verify important information.
-              </span>
-          </div>
-          )}
-          
-          {layout === 'floating' && (
-            <div className={`footer-text-outer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
-              <span className="footer-text">
-                AI responses may contain errors. Please verify important information.
-              </span>
-            </div>
-          )}
+            )}
           </div>
         </div>
+
+        {/* Disclaimer - positioned below input bar */}
+        {layout === 'split' && (
+          <div className={`footer-text-outer split-footer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
+            <span className="footer-text">
+              AI responses may contain errors. Please verify important information.
+            </span>
+          </div>
+        )}
+
+        {layout === 'floating' && (
+          <div className={`footer-text-outer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
+            <span className="footer-text">
+              AI responses may contain errors. Please verify important information.
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 

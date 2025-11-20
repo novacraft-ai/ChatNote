@@ -38,8 +38,14 @@
   justify-content: center;
   position: fixed;
   /* Smooth transition for position changes when switching layouts */
+  /* Only transition when layout changes, not on initial render */
   transition: top 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out;
-  z-index: 1001; /* Above floating chat (z-index: 1000) */
+  z-index: 1001;
+  /* Above floating chat (z-index: 1000) */
+  /* Set initial centered position to prevent animation from top-left */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
 /* In float mode, position upload button in the upper area between navbar and model selector bar area */
@@ -50,6 +56,7 @@
   top: calc(60px + (100vh - 60px - 250px) / 3);
   left: 50%;
   transform: translateX(-50%);
+  /* Ensure transition only happens when layout class changes, not on initial render */
 }
 
 /* In split mode, center button in the PDF viewer area (left side) */
@@ -60,6 +67,8 @@
   top: auto;
   left: auto;
   transform: none;
+  /* Remove transition when using relative positioning to prevent animation */
+  transition: none;
 }
 
 .upload-button {
@@ -256,6 +265,159 @@
   -webkit-user-select: text;
   -moz-user-select: text;
   -ms-user-select: text;
+}
+
+/* Loading overlay for PDF from history */
+.pdf-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+[data-theme='dark'] .pdf-loading-overlay {
+  background-color: rgba(26, 26, 26, 0.9);
+}
+
+.pdf-loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.pdf-loading-spinner p {
+  margin: 0;
+  font-size: 16px;
+  color: #333;
+}
+
+[data-theme='dark'] .pdf-loading-spinner p {
+  color: #ececf1;
+}
+
+.pdf-loading-spinner .spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #e0e0e0;
+  border-top-color: #333;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+[data-theme='dark'] .pdf-loading-spinner .spinner {
+  border-color: #444;
+  border-top-color: #ececf1;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Saving session overlay */
+.pdf-saving-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.3s ease-out;
+}
+
+[data-theme='dark'] .pdf-saving-overlay {
+  background-color: rgba(26, 26, 26, 0.95);
+}
+
+.pdf-saving-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  animation: slideUp 0.4s ease-out;
+}
+
+.pdf-saving-content p {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: #333;
+}
+
+[data-theme='dark'] .pdf-saving-content p {
+  color: #ececf1;
+}
+
+.pdf-saving-content .saving-subtitle {
+  font-size: 14px;
+  font-weight: 400;
+  opacity: 0.7;
+  margin-top: -8px;
+}
+
+.saving-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid #e0e0e0;
+  border-top-color: #4285f4;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+[data-theme='dark'] .saving-spinner {
+  border-color: #444;
+  border-top-color: #4285f4;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Fade out animation for PDF viewer when saving */
+.pdf-viewer.saving-session {
+  animation: fadeOut 0.3s ease-out;
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0.3;
+  }
 }
 
 .loading,
@@ -466,6 +628,7 @@
   text-align: center;
   transition: none;
   /* Hide default number input spinners */
+  appearance: textfield;
   -moz-appearance: textfield;
 }
 
@@ -528,3 +691,25 @@
   transform: scale(1.15);
 }
 
+
+@media (max-width: 768px) {
+  .pdf-controls-top {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .zoom-controls {
+    margin-left: auto;
+    gap: 4px;
+  }
+
+  .control-button {
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
+  }
+
+  .fit-button {
+    font-size: 18px;
+  }
+}

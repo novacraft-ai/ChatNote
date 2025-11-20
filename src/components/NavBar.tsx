@@ -1,20 +1,68 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useChatVisibility } from '../contexts/ChatVisibilityContext'
+import { useAuth } from '../contexts/AuthContext'
 import LoginButton from './LoginButton'
 import ApiKeySettings from './ApiKeySettings'
+import uclaLogo from '../assets/ucla-logo.svg'
 import './NavBar.css'
 
-function NavBar() {
+interface NavBarProps {
+  onOpenHistory?: () => void
+  isSavingSession?: boolean
+}
+
+function NavBar({ onOpenHistory, isSavingSession = false }: NavBarProps) {
   const { theme, toggleTheme } = useTheme()
   const { isChatVisible, toggleChatVisibility } = useChatVisibility()
+  const { user } = useAuth()
   const [showSettings, setShowSettings] = useState(false)
+  const titleTextRef = useRef<HTMLSpanElement>(null)
+  const titleForRef = useRef<HTMLSpanElement>(null)
+  const logoRef = useRef<HTMLImageElement>(null)
+
+  // Check if user is from UCLA (g.ucla.edu domain)
+  const isUCLAUser = user?.email?.endsWith('@g.ucla.edu') ?? false
+
+  useEffect(() => {
+    // Remove animation after 3 complete loops (4.5s * 3 = 13.5s)
+    const timer = setTimeout(() => {
+      if (titleTextRef.current) titleTextRef.current.classList.add('animation-complete')
+      if (titleForRef.current) titleForRef.current.classList.add('animation-complete')
+      if (logoRef.current) logoRef.current.classList.add('animation-complete')
+    }, 13500) // 4.5s * 3 loops
+
+    return () => clearTimeout(timer)
+  }, [])
 
   return (
     <>
       <nav className="navbar">
         <div className="navbar-content">
-          <h1 className="navbar-title">ChatNote</h1>
+          {onOpenHistory && (
+            <button
+              className="history-toggle"
+              onClick={onOpenHistory}
+              title="PDF History"
+              aria-label="Open PDF history"
+              disabled={isSavingSession}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </button>
+          )}
+          <div className="navbar-title">
+            <span ref={titleTextRef} className="title-text">ChatNote</span>
+            {isUCLAUser && (
+              <>
+                <span ref={titleForRef} className="title-for">for</span>
+                <img ref={logoRef} src={uclaLogo} alt="UCLA" className="ucla-logo" />
+              </>
+            )}
+          </div>
           <div className="navbar-actions">
             <LoginButton />
             <button 
@@ -33,6 +81,7 @@ function NavBar() {
               onClick={toggleChatVisibility}
               title={isChatVisible ? 'Hide chat' : 'Show chat'}
               aria-label={isChatVisible ? 'Hide chat' : 'Show chat'}
+              disabled={isSavingSession}
             >
               {isChatVisible ? (
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -100,4 +149,5 @@ function NavBar() {
 }
 
 export default NavBar
+export type { NavBarProps }
 

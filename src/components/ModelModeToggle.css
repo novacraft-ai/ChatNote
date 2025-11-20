@@ -128,3 +128,74 @@
 .theme-dark .model-mode-toggle-label {
   color: #ffffff;
 }
+
+.model-mode-info-icon-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  cursor: help;
+}
+
+.model-mode-info-icon {
+  color: #999;
+  transition: color 0.2s ease;
+}
+
+.model-mode-info-icon:hover {
+  color: #666;
+}
+
+.theme-dark .model-mode-info-icon {
+  color: #888;
+}
+
+.theme-dark .model-mode-info-icon:hover {
+  color: #aaa;
+}
+
+.model-mode-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #2a2a2a;
+  color: #ffffff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 10015;
+  pointer-events: none;
+  animation: tooltip-fade-in 0.2s ease-out;
+}
+
+.model-mode-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #2a2a2a;
+}
+
+.theme-light .model-mode-tooltip {
+  background-color: #333;
+}
+
+.theme-light .model-mode-tooltip::after {
+  border-top-color: #333;
+}
+
+@keyframes tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
