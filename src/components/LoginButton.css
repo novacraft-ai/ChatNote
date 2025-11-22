@@ -11,6 +11,24 @@
   cursor: pointer;
 }
 
+.login-button-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-button.retry {
+  background: #6c757d;
+  color: white;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.login-button.retry:hover {
+  background: #5a6268;
+  transform: translateY(-1px);
+}
+
 .login-button.sign-in {
   background: #4285f4;
   color: white;

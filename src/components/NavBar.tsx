@@ -10,19 +10,32 @@ import './NavBar.css'
 interface NavBarProps {
   onOpenHistory?: () => void
   isSavingSession?: boolean
+  currentMode?: 'guide-me-learn' | 'quiz-me' | null
+  onResetMode?: () => void
+  hasPdf?: boolean
 }
 
-function NavBar({ onOpenHistory, isSavingSession = false }: NavBarProps) {
+function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMode, hasPdf = false }: NavBarProps) {
   const { theme, toggleTheme } = useTheme()
   const { isChatVisible, toggleChatVisibility } = useChatVisibility()
   const { user } = useAuth()
   const [showSettings, setShowSettings] = useState(false)
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
   const titleTextRef = useRef<HTMLSpanElement>(null)
   const titleForRef = useRef<HTMLSpanElement>(null)
   const logoRef = useRef<HTMLImageElement>(null)
 
   // Check if user is from UCLA (g.ucla.edu domain)
   const isUCLAUser = user?.email?.endsWith('@g.ucla.edu') ?? false
+
+  // Get mode display text
+  const getModeText = () => {
+    if (currentMode === 'quiz-me') return 'Quiz Mode'
+    if (currentMode === 'guide-me-learn') return 'Learn Mode'
+    return null
+  }
+
+  const modeText = getModeText()
 
   useEffect(() => {
     // Remove animation after 3 complete loops (4.5s * 3 = 13.5s)
@@ -55,6 +68,17 @@ function NavBar({ onOpenHistory, isSavingSession = false }: NavBarProps) {
             </button>
           )}
           <div className="navbar-title">
+            {modeText && (
+              <>
+                <button className="mode-indicator" onClick={onResetMode} title="Click to change mode">
+                  <span className="mode-text">{modeText}</span>
+                  <svg className="mode-change-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </button>
+                <span className="mode-separator">•</span>
+              </>
+            )}
             <span ref={titleTextRef} className="title-text">ChatNote</span>
             {isUCLAUser && (
               <>
@@ -65,61 +89,153 @@ function NavBar({ onOpenHistory, isSavingSession = false }: NavBarProps) {
           </div>
           <div className="navbar-actions">
             <LoginButton />
+            <div className="navbar-actions-desktop">
+              <button 
+                className="settings-toggle"
+                onClick={() => setShowSettings(!showSettings)}
+                title="Settings"
+                aria-label="Settings"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24" />
+                </svg>
+              </button>
+              {hasPdf && (
+              <button 
+                className="chat-toggle"
+                onClick={toggleChatVisibility}
+                title={isChatVisible ? 'Hide chat' : 'Show chat'}
+                aria-label={isChatVisible ? 'Hide chat' : 'Show chat'}
+                disabled={isSavingSession}
+              >
+                {isChatVisible ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    <line x1="9" y1="9" x2="15" y2="9" />
+                  </svg>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    <line x1="6" y1="6" x2="18" y2="18" strokeWidth="2.5" />
+                  </svg>
+                )}
+              </button>
+              )}
+              <button 
+                className="theme-toggle"
+                onClick={toggleTheme}
+                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+                aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+              >
+                {theme === 'light' ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  </svg>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="5" />
+                    <line x1="12" y1="1" x2="12" y2="3" />
+                    <line x1="12" y1="21" x2="12" y2="23" />
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                    <line x1="1" y1="12" x2="3" y2="12" />
+                    <line x1="21" y1="12" x2="23" y2="12" />
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                  </svg>
+                )}
+              </button>
+            </div>
             <button 
-              className="settings-toggle"
-              onClick={() => setShowSettings(!showSettings)}
-              title="Settings"
-              aria-label="Settings"
+              className="mobile-menu-toggle"
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+              title="More options"
+              aria-label="Toggle menu"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24" />
+                <circle cx="12" cy="12" r="1" />
+                <circle cx="12" cy="5" r="1" />
+                <circle cx="12" cy="19" r="1" />
               </svg>
             </button>
-            <button 
-              className="chat-toggle"
-              onClick={toggleChatVisibility}
-              title={isChatVisible ? 'Hide chat' : 'Show chat'}
-              aria-label={isChatVisible ? 'Hide chat' : 'Show chat'}
-              disabled={isSavingSession}
-            >
-              {isChatVisible ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  <line x1="9" y1="9" x2="15" y2="9" />
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  <line x1="6" y1="6" x2="18" y2="18" strokeWidth="2.5" />
-                </svg>
-              )}
-            </button>
-            <button 
-              className="theme-toggle"
-              onClick={toggleTheme}
-              title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-              aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-            >
-              {theme === 'light' ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="5" />
-                  <line x1="12" y1="1" x2="12" y2="3" />
-                  <line x1="12" y1="21" x2="12" y2="23" />
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                  <line x1="1" y1="12" x2="3" y2="12" />
-                  <line x1="21" y1="12" x2="23" y2="12" />
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                </svg>
-              )}
-            </button>
           </div>
+          {showMobileMenu && (
+            <div className="mobile-menu">
+              <button 
+                className="mobile-menu-item"
+                onClick={() => {
+                  setShowSettings(!showSettings)
+                  setShowMobileMenu(false)
+                }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24" />
+                </svg>
+                <span>Settings</span>
+              </button>
+              {hasPdf && (
+              <button 
+                className="mobile-menu-item"
+                onClick={() => {
+                  toggleChatVisibility()
+                  setShowMobileMenu(false)
+                }}
+                disabled={isSavingSession}
+              >
+                {isChatVisible ? (
+                  <>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      <line x1="9" y1="9" x2="15" y2="9" />
+                    </svg>
+                    <span>Hide Chat</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      <line x1="6" y1="6" x2="18" y2="18" strokeWidth="2.5" />
+                    </svg>
+                    <span>Show Chat</span>
+                  </>
+                )}
+              </button>
+              )}
+              <button 
+                className="mobile-menu-item"
+                onClick={() => {
+                  toggleTheme()
+                  setShowMobileMenu(false)
+                }}
+              >
+                {theme === 'light' ? (
+                  <>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                    </svg>
+                    <span>Dark Mode</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="5" />
+                      <line x1="12" y1="1" x2="12" y2="3" />
+                      <line x1="12" y1="21" x2="12" y2="23" />
+                      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                      <line x1="1" y1="12" x2="3" y2="12" />
+                      <line x1="21" y1="12" x2="23" y2="12" />
+                      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                    </svg>
+                    <span>Light Mode</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </nav>
       {showSettings && (

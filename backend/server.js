@@ -1296,6 +1296,126 @@ app.post('/api/drive/save-notes/:pdfId', authenticateToken, async (req, res) => 
   }
 })
 
+// Save quiz history
+app.post('/api/drive/save-quiz', authenticateToken, async (req, res) => {
+  try {
+    const { pdfId, quiz } = req.body
+    const refreshToken = await getUserRefreshToken(req.user.id)
+
+    // Load or create folders
+    const folders = await findOrCreateChatNoteFolders(refreshToken)
+    
+    // Create quizzes folder if it doesn't exist
+    const quizzesFolderId = folders.quizzesFolderId || await uploadFileToDrive(
+      folders.chatNoteFolderId,
+      'quizzes',
+      '',
+      'application/vnd.google-apps.folder',
+      refreshToken
+    )
+
+    // Generate quiz ID if not provided
+    const quizId = quiz.id || `quiz-${Date.now()}`
+    
+    // Save quiz data
+    const quizData = {
+      ...quiz,
+      id: quizId,
+      pdfId,
+      version: 1,
+      lastModified: Date.now()
+    }
+
+    await uploadFileToDrive(
+      quizzesFolderId,
+      `${quizId}.json`,
+      JSON.stringify(quizData),
+      'application/json',
+      refreshToken
+    )
+
+    res.json({ success: true, quizId })
+  } catch (error) {
+    console.error('Save quiz error:', error)
+    if (error.response?.data?.error === 'invalid_grant' || 
+        error.code === 'invalid_grant' ||
+        error.message?.includes('invalid_grant') ||
+        error.message === 'INVALID_GRANT' ||
+        error.message?.includes('INVALID_GRANT') ||
+        error.name === 'INVALID_GRANT') {
+      await clearDriveAuthorization(req.user.id)
+      return res.status(403).json({ error: 'Drive authorization expired. Please authorize again.' })
+    }
+    if (error.message === 'Drive not authorized') {
+      return res.status(403).json({ error: 'Drive not authorized' })
+    }
+    res.status(500).json({ error: 'Failed to save quiz' })
+  }
+})
+
+// Get quiz history
+app.get('/api/drive/quiz-history', authenticateToken, async (req, res) => {
+  try {
+    const { pdfId } = req.query
+    const refreshToken = await getUserRefreshToken(req.user.id)
+
+    const folders = await findOrCreateChatNoteFolders(refreshToken)
+    
+    // Return empty if quizzes folder doesn't exist yet
+    if (!folders.quizzesFolderId) {
+      return res.json({ quizzes: [] })
+    }
+
+    // List all quiz files
+    const { google } = await import('googleapis')
+    const drive = google.drive('v3')
+    
+    // Get fresh access token
+    const { access_token } = await refreshAccessToken(refreshToken)
+    
+    let query = `'${folders.quizzesFolderId}' in parents and mimeType='application/json' and trashed=false`
+    
+    // Filter by PDF if provided
+    if (pdfId) {
+      query += ` and name contains '${pdfId}'`
+    }
+
+    const response = await drive.files.list({
+      q: query,
+      fields: 'files(id, name, modifiedTime)',
+      orderBy: 'modifiedTime desc',
+      access_token
+    })
+
+    const quizzes = []
+    for (const file of response.data.files || []) {
+      try {
+        const quizData = await downloadJsonFromDrive(file.id, refreshToken)
+        quizzes.push(quizData)
+      } catch (err) {
+        console.warn(`Failed to load quiz ${file.name}:`, err)
+      }
+    }
+
+    res.json({ quizzes })
+  } catch (error) {
+    console.error('Get quiz history error:', error)
+    if (error.response?.data?.error === 'invalid_grant' || 
+        error.code === 'invalid_grant' ||
+        error.message?.includes('invalid_grant') ||
+        error.message === 'INVALID_GRANT' ||
+        error.message?.includes('INVALID_GRANT') ||
+        error.name === 'INVALID_GRANT') {
+      await clearDriveAuthorization(req.user.id)
+      return res.status(403).json({ error: 'Drive authorization expired. Please authorize again.' })
+    }
+    if (error.message === 'Drive not authorized') {
+      return res.status(403).json({ error: 'Drive not authorized' })
+    }
+    res.status(500).json({ error: 'Failed to get quiz history' })
+  }
+})
+
 
 // Chat proxy endpoint
 // Embedding endpoint for RAG (proxies to Hugging Face, Cohere, or OpenAI)
@@ -1479,8 +1599,13 @@ Use this context to provide relevant and accurate answers. If the context doesn'
     if (latestUserMessage) {
       // Skip moderation for internal title generation prompts
       const isTitleGenerationPrompt = latestUserMessage.content.includes('You generate short, descriptive titles for uploaded PDFs')
+      
+      // Skip moderation for messages containing PDF context (these are auto-generated from PDF extraction)
+      const isPDFContextMessage = latestUserMessage.content.includes('Page 1 of 1:') || 
+                                   latestUserMessage.content.includes('--- Page') ||
+                                   latestUserMessage.content.includes('Content from the PDF')
 
-      if (!isTitleGenerationPrompt) {
+      if (!isTitleGenerationPrompt && !isPDFContextMessage) {
         const moderationResult = await checkContentModeration(latestUserMessage.content, apiKey)
         if (!moderationResult.safe) {
           console.warn('Content moderation flagged message:', {
@@ -1626,6 +1751,7 @@ app.use((err, req, res, next) => {
 // Start server
 const startServer = async () => {
   await connectDB()
+  
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`)
     console.log(`📡 Health check: http://localhost:${PORT}/health`)

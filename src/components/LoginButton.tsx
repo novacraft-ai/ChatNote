@@ -177,6 +177,7 @@ export default function LoginButton() {
             use_fedcm_for_prompt: true
           })
           setGoogleLoaded(true)
+          setScriptError(null) // Clear any previous errors
           // Don't auto-prompt if user is already logged in
           // The prompt will be shown when user clicks the login button
         } catch (error) {
@@ -189,20 +190,20 @@ export default function LoginButton() {
       }
     }
 
-    script.onerror = () => {
-      console.error('Failed to load Google Identity Services script')
-      setScriptError('Failed to load Google Sign-In script')
+    script.onerror = (error) => {
+      console.error('Failed to load Google Identity Services script:', error)
+      setScriptError('Failed to load Google Sign-In script. Please check your internet connection and try again.')
       setGoogleLoaded(false)
     }
 
     // Add timeout to detect if script takes too long
     const timeout = setTimeout(() => {
-      if (!window.google) {
+      if (!window.google && !scriptError) {
         console.error('Google script loading timeout')
-        setScriptError('Google Sign-In is taking too long to load')
+        setScriptError('Google Sign-In is taking too long to load. Please check your internet connection or try again later.')
         setGoogleLoaded(false)
       }
-    }, 10000) // 10 second timeout
+    }, 15000) // 15 second timeout (increased from 10s)
 
     document.head.appendChild(script)
 
@@ -441,18 +442,34 @@ export default function LoginButton() {
   // Show error state if script failed to load
   if (scriptError && !googleLoaded) {
     return (
-      <button
-        onClick={handleLogin}
-        className="login-button sign-in error"
-        title={scriptError}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="12" r="10" />
-          <line x1="12" y1="8" x2="12" y2="12" />
-          <line x1="12" y1="16" x2="12.01" y2="16" />
-        </svg>
-        Sign in (Error)
-      </button>
+      <div className="login-button-group">
+        <button
+          onClick={handleLogin}
+          className="login-button sign-in error"
+          title={scriptError}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          Sign in (Error)
+        </button>
+        <button
+          onClick={() => {
+            setScriptError(null)
+            setGoogleLoaded(false)
+            window.location.reload()
+          }}
+          className="login-button retry"
+          title="Retry loading Google Sign-In"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+          </svg>
+          Retry
+        </button>
+      </div>
     )
   }
 
@@ -469,8 +486,7 @@ export default function LoginButton() {
             <path d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" />
             <path d="M3 20a6 6 0 0 1 6-6h6a6 6 0 0 1 6 6v1H3v-1Z" />
           </svg>
-          <span className="button-text-desktop">Sign in with Google</span>
-          <span className="button-text-mobile">Sign in</span>
+          <span>Sign in</span>
         </>
       ) : (
         <span>Loading Google Sign-In...</span>

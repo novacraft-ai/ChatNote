@@ -12,6 +12,12 @@ import 'katex/dist/katex.min.css'
 import { preprocessMathContent } from '../utils/markdownUtils'
 import './ChatGPTEmbedded.css'
 import chatNoteIcon from '../assets/chatnote-icon.svg'
+import InteractionModeSelector from './InteractionModeSelector'
+import QuizInterface from './QuizInterface'
+import QuizConfiguration from './QuizConfiguration'
+import type { InteractionMode, QuizSession, QuizQuestion } from '../types/interactionModes'
+import type { QuizQuestionType } from '../types/interactionModes'
+import { generateQuiz, evaluateAnswer } from '../services/quizService'
 
 /**
  * Extract keywords from user question for relevance matching
@@ -909,13 +915,17 @@ interface ChatGPTEmbeddedProps {
   onToggleLayout: () => void
   layout: 'floating' | 'split'
   currentPageNumber?: number
+  pdfTotalPages?: number
   onCreateKnowledgeNote?: (content: string, linkedText: string | undefined, pageNumber: number | undefined, textYPosition: number | undefined, messageId: string) => void
   onClearSelectedText?: () => void
   onAddAnnotationToPDF?: (text: string, pageNumber: number, textYPosition?: number) => void
   onOpenKnowledgeNotes?: () => void
+  onModeChange?: (mode: InteractionMode) => void
+  resetModeRef?: React.MutableRefObject<(() => void) | null>
+  onRequestPageChange?: (page: number) => void
 }
 
-function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, currentPageNumber, onCreateKnowledgeNote, onClearSelectedText, onAddAnnotationToPDF, onOpenKnowledgeNotes }: ChatGPTEmbeddedProps) {
+function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, currentPageNumber, onCreateKnowledgeNote, onClearSelectedText, onAddAnnotationToPDF, onOpenKnowledgeNotes, onModeChange, resetModeRef }: ChatGPTEmbeddedProps) {
   const { theme } = useTheme()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
 
@@ -985,6 +995,15 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
   const [messageScrollStates, setMessageScrollStates] = useState<Record<string, { canScrollLeft: boolean; canScrollRight: boolean }>>({})
   const [clearConfirming, setClearConfirming] = useState(false)
   const clearConfirmTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Interaction mode states - restore from localStorage
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>(() => {
+    const saved = localStorage.getItem('chatnote-interaction-mode')
+    return saved ? (saved as InteractionMode) : null
+  })
+  const [quizSession, setQuizSession] = useState<QuizSession | null>(null)
+  const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false)
+  const [showQuizConfig, setShowQuizConfig] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imagesPreviewRef = useRef<HTMLDivElement>(null)
   const messageImagesRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -2539,8 +2558,245 @@ Follow these strict rules:
     }
   }
 
+  // Handle interaction mode changes
+  const handleInteractionModeSelect = (mode: InteractionMode) => {
+    setInteractionMode(mode)
+    if (mode === 'quiz-me') {
+      setShowQuizConfig(true)
+    }
+    // Guide me learn now goes directly to chat - no sub-mode selection needed
+    onModeChange?.(mode)
+  }
+
+  const handleBackToInteraction = () => {
+    setInteractionMode(null)
+    onModeChange?.(null)
+  }
+
+  const handleBackFromQuizConfig = () => {
+    setShowQuizConfig(false)
+    setInteractionMode(null)
+    onModeChange?.(null)
+  }
+
+  // Expose reset function to parent via ref
+  useEffect(() => {
+    if (resetModeRef) {
+      resetModeRef.current = handleBackToInteraction
+    }
+  }, [resetModeRef])
+
+  // Persist interaction mode to localStorage
+  useEffect(() => {
+    if (interactionMode) {
+      localStorage.setItem('chatnote-interaction-mode', interactionMode)
+    } else {
+      localStorage.removeItem('chatnote-interaction-mode')
+    }
+  }, [interactionMode])
+
+  // Notify parent of mode changes and restore on mount
+  useEffect(() => {
+    if (interactionMode) {
+      onModeChange?.(interactionMode)
+    }
+  }, [interactionMode, onModeChange])
+
+  // Restore quiz config screen if quiz-me mode was saved
+  useEffect(() => {
+    if (interactionMode === 'quiz-me' && !quizSession) {
+      setShowQuizConfig(true)
+    }
+  }, []) // Only run on mount
+
+  // Quiz handlers
+  const handleStartQuiz = async (count: number, types: QuizQuestionType[]) => {
+    if (!pdfText) {
+      setError('Please load a PDF document first')
+      return
+    }
+
+    setShowQuizConfig(false)
+    setQuizSession(null) // Clear old quiz session before generating new one
+    setIsGeneratingQuiz(true)
+    setError(null)
+
+    try {
+      const questions = await generateQuiz(pdfText, {
+        count: count,
+        difficulty: 'medium',
+        questionTypes: types
+      })
+
+      setQuizSession({
+        questions: questions,
+        currentQuestionIndex: 0,
+        score: 0,
+        answers: new Map(),
+        startTime: new Date(),
+        isComplete: false
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate quiz')
+      setInteractionMode(null)
+    } finally {
+      setIsGeneratingQuiz(false)
+    }
+  }
+
+  const handleAnswerQuestion = async (questionId: string, answer: string) => {
+    if (!quizSession) return
+
+    const currentQuestion = quizSession.questions[quizSession.currentQuestionIndex]
+    const evaluation = await evaluateAnswer(currentQuestion, answer)
+
+    const updatedAnswers = new Map(quizSession.answers)
+    updatedAnswers.set(questionId, answer)
+
+    const newScore = evaluation.isCorrect ? quizSession.score + 1 : quizSession.score
+    const isLastQuestion = quizSession.currentQuestionIndex === quizSession.questions.length - 1
+
+    setQuizSession({
+      ...quizSession,
+      answers: updatedAnswers,
+      score: newScore,
+      currentQuestionIndex: isLastQuestion ? quizSession.currentQuestionIndex : quizSession.currentQuestionIndex + 1,
+      isComplete: isLastQuestion,
+      endTime: isLastQuestion ? new Date() : undefined
+    })
+  }
+
+  const handleRequestMoreQuestions = () => {
+    // Show configuration again to get more questions
+    setQuizSession(null)
+    setShowQuizConfig(true)
+  }
+
+  const handleRestartQuiz = () => {
+    // Retake the same quiz by resetting answers and score
+    if (quizSession) {
+      setQuizSession({
+        ...quizSession,
+        currentQuestionIndex: 0,
+        score: 0,
+        answers: new Map(),
+        startTime: new Date(),
+        endTime: undefined,
+        isComplete: false
+      })
+    } else {
+      // If no session exists, show configuration
+      setQuizSession(null)
+      setShowQuizConfig(true)
+    }
+  }
+
+  const handleExitQuiz = () => {
+    setQuizSession(null)
+    setInteractionMode(null)
+    onModeChange?.(null)
+  }
+
+  const handleAddQuizQuestionToPDF = (question: QuizQuestion, userAnswer: string, isCorrect: boolean) => {
+    if (!question.pageReference) {
+      // Use current page if no page reference
+      const pageNumber = currentPageNumber || 1
+      const questionText = `Quiz Question: ${question.question}\n\nYour Answer: ${userAnswer}\n${isCorrect ? '✓ Correct!' : '✗ Incorrect'}\n\nExplanation: ${question.explanation}`
+      
+      onAddAnnotationToPDF?.(questionText, pageNumber, 0.5)
+    } else {
+      const questionText = `Quiz Question: ${question.question}\n\nYour Answer: ${userAnswer}\n${isCorrect ? '✓ Correct!' : '✗ Incorrect'}\n\nExplanation: ${question.explanation}`
+      
+      onAddAnnotationToPDF?.(questionText, question.pageReference, 0.5)
+    }
+  }
+
+  const handleAddQuizQuestionToNotes = (question: QuizQuestion, _userAnswer: string, isCorrect: boolean) => {
+    const pageNumber = question.pageReference || currentPageNumber || 1
+    
+    // Get the correct answer text
+    let correctAnswerText = 'N/A'
+    if (question.type === 'multiple-choice' && question.options) {
+      const correctOption = question.options.find(opt => opt.isCorrect)
+      correctAnswerText = correctOption ? correctOption.text : 'N/A'
+    } else if (Array.isArray(question.correctAnswer)) {
+      correctAnswerText = question.correctAnswer.join(', ')
+    } else {
+      correctAnswerText = question.correctAnswer
+    }
+    
+    const noteContent = `**Quiz Question** ${isCorrect ? '✓' : '✗'}\n\n${question.question}\n\n**Correct Answer:** ${correctAnswerText}\n\n**Explanation:** ${question.explanation}`
+    
+    onCreateKnowledgeNote?.(
+      noteContent,
+      question.question, // linked text
+      pageNumber,
+      0.5, // textYPosition
+      `quiz-${question.id}` // messageId - stable ID to prevent duplicates
+    )
+  }
+
   return (
     <div className="chatgpt-wrapper">
+      {/* Only show interaction modes when PDF is loaded */}
+      {pdfText && (
+        <>
+      {/* Interaction Mode Selection */}
+      {!interactionMode && (
+        <InteractionModeSelector
+          onModeSelect={handleInteractionModeSelect}
+        />
+      )}
+
+      {/* Quiz Mode */}
+      {interactionMode === 'quiz-me' && (
+        <>
+          {showQuizConfig && (
+            <QuizConfiguration
+              onStartQuiz={handleStartQuiz}
+              onBack={handleBackFromQuizConfig}
+            />
+          )}
+          {isGeneratingQuiz && (
+            <div className="quiz-loading">
+              <div className="quiz-loading-spinner"></div>
+              <p>Generating quiz questions...</p>
+            </div>
+          )}
+          {quizSession && !showQuizConfig && (
+            <QuizInterface
+              session={quizSession}
+              onAnswer={handleAnswerQuestion}
+              onNextQuestion={() => {
+                if (quizSession.currentQuestionIndex < quizSession.questions.length - 1) {
+                  setQuizSession({
+                    ...quizSession,
+                    currentQuestionIndex: quizSession.currentQuestionIndex + 1
+                  })
+                }
+              }}
+              onPreviousQuestion={() => {
+                if (quizSession.currentQuestionIndex > 0) {
+                  setQuizSession({
+                    ...quizSession,
+                    currentQuestionIndex: quizSession.currentQuestionIndex - 1
+                  })
+                }
+              }}
+              onRequestMore={(_count, _type) => handleRequestMoreQuestions()}
+              onFinish={handleExitQuiz}
+              onRestart={handleRestartQuiz}
+              onAddToPDF={handleAddQuizQuestionToPDF}
+              onAddToNotes={handleAddQuizQuestionToNotes}
+              onExitReview={handleExitQuiz}
+            />
+          )}
+        </>
+      )}
+
+      {/* Chat Interface - Show for guide-me-learn or when no mode selected */}
+      {(!interactionMode || interactionMode === 'guide-me-learn') && (
+        <>
       {!authLoading && !isAuthenticated && layout === 'floating' && (
         <div className="api-key-warning-outer">
           <span>🔐 Please sign in to use the chat feature</span>
@@ -3665,6 +3921,10 @@ Follow these strict rules:
           </div>
         )}
       </div>
+      </>
+      )}
+      </>
+      )}
     </div>
   )
 }

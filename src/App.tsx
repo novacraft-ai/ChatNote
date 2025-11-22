@@ -29,7 +29,7 @@ function AppContent() {
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [pdfText, setPdfText] = useState<string>('')
   const [selectedText, setSelectedText] = useState<string>('')
-  const [chatLayout, setChatLayout] = useState<ChatLayout>('floating')
+  const [chatLayout, setChatLayout] = useState<ChatLayout>('split')
   const [currentPageNumber, setCurrentPageNumber] = useState<number>(1)
   const [knowledgeNotes, setKnowledgeNotes] = useState<KnowledgeNote[]>([])
   const [showKnowledgeNotes, setShowKnowledgeNotes] = useState<boolean>(false) // Default to collapsed
@@ -46,7 +46,9 @@ function AppContent() {
   const [isDriveAuthorized, setIsDriveAuthorized] = useState<boolean>(false)
   const [lastSaveTime, setLastSaveTime] = useState<number>(0) // Track when we last saved
   const [lastModificationTime, setLastModificationTime] = useState<number>(0) // Track when data was last modified
+  const [currentInteractionMode, setCurrentInteractionMode] = useState<'guide-me-learn' | 'quiz-me' | null>(null)
   const hasMarkedInitialHistoryRef = useRef(false)
+  const resetModeCallbackRef = useRef<(() => void) | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
   const hasCurrentPdfUnsavedChanges = useMemo(() => {
@@ -320,7 +322,19 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
   }
 
   const toggleChatLayout = () => {
-    setChatLayout((prev) => (prev === 'floating' ? 'split' : 'floating'))
+    setChatLayout(prev => prev === 'floating' ? 'split' : 'floating')
+  }
+
+  const handleModeChange = (mode: 'guide-me-learn' | 'quiz-me' | null) => {
+    setCurrentInteractionMode(mode)
+  }
+
+  const handleResetMode = () => {
+    // Auto-switch layout to 'split' before showing mode selections
+    setChatLayout('split')
+    if (resetModeCallbackRef.current) {
+      resetModeCallbackRef.current()
+    }
   }
 
   const handleCreateKnowledgeNote = (
@@ -356,6 +370,11 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
       messageId,
     }
     setKnowledgeNotes((prev) => [...prev, newNote])
+    
+    // Scroll to the page where the note was added
+    if (notePageNumber) {
+      handleScrollToPage(notePageNumber)
+    }
   }
 
   const handleDeleteKnowledgeNote = (id: string) => {
@@ -746,7 +765,13 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
         isSavingSession={isSavingSession}
         setIsSavingSession={setIsSavingSession}
       >
-        <NavBar onOpenHistory={() => setShowHistory(true)} isSavingSession={isSavingSession} />
+        <NavBar 
+          onOpenHistory={() => setShowHistory(true)} 
+          isSavingSession={isSavingSession}
+          currentMode={currentInteractionMode}
+          onResetMode={handleResetMode}
+          hasPdf={pdfFile !== null}
+        />
       </SaveProvider>
       <PDFHistoryPanel
         isOpen={showHistory}
@@ -765,6 +790,11 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
               onTextSelection={handleTextSelection}
               layout={chatLayout}
               onPageChange={setCurrentPageNumber}
+              onTotalPagesChange={(total) => {
+                if ((window as any).__pdfTotalPages !== total) {
+                  (window as any).__pdfTotalPages = total
+                }
+              }}
               showKnowledgeNotes={showKnowledgeNotes}
               onToggleKnowledgeNotes={() => setShowKnowledgeNotes(!showKnowledgeNotes)}
               knowledgeNotes={knowledgeNotes}
@@ -803,7 +833,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
             pdfContentRef={(window as any).__pdfContentRef ? { current: (window as any).__pdfContentRef } : undefined}
           />
         )}
-        {isChatVisible && (
+        {isChatVisible && pdfFile && (
           <div className={`chat-container ${chatLayout === 'floating' ? 'floating-chat' : 'split-chat'} ${showKnowledgeNotes ? 'knowledge-notes-open' : ''}`}>
             <ChatGPTEmbedded
               selectedText={selectedText}
@@ -811,6 +841,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
               onToggleLayout={toggleChatLayout}
               layout={chatLayout}
               currentPageNumber={currentPageNumber}
+              pdfTotalPages={(window as any).__pdfTotalPages}
               onCreateKnowledgeNote={handleCreateKnowledgeNote}
               onClearSelectedText={() => setSelectedText('')}
               onOpenKnowledgeNotes={() => {
@@ -818,6 +849,9 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
                   setShowKnowledgeNotes(true)
                 }
               }}
+              onModeChange={handleModeChange}
+              resetModeRef={resetModeCallbackRef}
+              onRequestPageChange={setCurrentPageNumber}
               onAddAnnotationToPDF={(text: string, pageNumber: number, textYPosition?: number) => {
                 // Create text box annotation and add it to PDF
                 if ((window as any).__addPDFAnnotation) {

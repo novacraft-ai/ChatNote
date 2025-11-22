@@ -21,6 +21,7 @@ async function getPdfjsLib() {
     if (typeof window !== 'undefined' && pdfjsLib && !pdfjsLib.GlobalWorkerOptions?.workerSrc) {
       const isDev = import.meta.env.DEV
       let workerSrc: string
+      const standardFontDataUrl = 'https://unpkg.com/pdfjs-dist@5.4.394/standard_fonts/'
       
       if (isDev) {
         workerSrc = 'https://unpkg.com/pdfjs-dist@5.4.394/build/pdf.worker.min.mjs'
@@ -32,8 +33,9 @@ async function getPdfjsLib() {
       
       if (pdfjsLib.GlobalWorkerOptions) {
         pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
+        pdfjsLib.GlobalWorkerOptions.standardFontDataUrl = standardFontDataUrl
       } else {
-        pdfjsLib.GlobalWorkerOptions = { workerSrc }
+        pdfjsLib.GlobalWorkerOptions = { workerSrc, standardFontDataUrl }
       }
     }
   }
@@ -49,7 +51,12 @@ export async function extractTextFromPDF(file: File): Promise<string> {
   try {
     const pdfjs = await getPdfjsLib()
     const arrayBuffer = await file.arrayBuffer()
-    const loadingTask = pdfjs.getDocument({ data: arrayBuffer })
+    
+    // Add standardFontDataUrl to prevent warnings
+    const loadingTask = pdfjs.getDocument({
+      data: arrayBuffer,
+      standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@5.4.394/standard_fonts/'
+    })
     const pdf = await loadingTask.promise
     
     const numPages = pdf.numPages

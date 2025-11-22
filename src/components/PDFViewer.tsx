@@ -16,6 +16,7 @@ interface PDFViewerProps {
   onTextSelection: (text: string, pageNumber?: number, textYPosition?: number) => void
   layout?: 'floating' | 'split'
   onPageChange?: (pageNumber: number) => void
+  onTotalPagesChange?: (totalPages: number) => void
   showKnowledgeNotes?: boolean
   onToggleKnowledgeNotes?: () => void
   knowledgeNotes?: KnowledgeNote[]
@@ -218,6 +219,7 @@ function PDFViewer({
   onTextSelection,
   layout = 'floating',
   onPageChange,
+  onTotalPagesChange,
   showKnowledgeNotes = true,
   onToggleKnowledgeNotes,
   knowledgeNotes = [],
@@ -399,6 +401,7 @@ function PDFViewer({
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages)
+    onTotalPagesChange?.(numPages)
     const initialPage = 1
     setPageNumber(initialPage)
     // Use setTimeout to avoid calling onPageChange during render

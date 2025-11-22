@@ -692,24 +692,72 @@
 }
 
 
-@media (max-width: 768px) {
+@media (max-width: 800px) {
   .pdf-controls-top {
     gap: 8px;
     padding: 8px;
+    flex-wrap: nowrap; /* Prevent wrapping on mobile */
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  /* Hide textbox controls on very narrow screens to save space */
+  .textbox-controls {
+    display: none;
   }
 
   .zoom-controls {
     margin-left: auto;
     gap: 4px;
+    flex-shrink: 0;
   }
 
   .control-button {
     width: 36px;
     height: 36px;
     font-size: 20px;
+    flex-shrink: 0;
   }
 
   .fit-button {
     font-size: 18px;
+  }
+}
+
+/* Additional optimization for split layout with knowledge notes on narrow screens */
+@media (max-width: 1300px) {
+  /* When in split layout with limited width */
+  .pdf-controls-top {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .pdf-controls-top::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .pdf-controls-top::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .pdf-controls-top::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 2px;
+  }
+
+  [data-theme='dark'] .pdf-controls-top::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Reduce textbox controls on medium screens */
+  .textbox-controls {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .textbox-control-label {
+    font-size: 12px;
   }
 }

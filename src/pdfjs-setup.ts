@@ -7,15 +7,18 @@ if (typeof window !== 'undefined') {
   // Use CDN in development, local file in production
   const isDev = import.meta.env.DEV
   let workerSrc: string
+  let standardFontDataUrl: string
   
   if (isDev) {
     // In development, use CDN to avoid Vite module processing issues
     workerSrc = 'https://unpkg.com/pdfjs-dist@5.4.394/build/pdf.worker.min.mjs'
+    standardFontDataUrl = 'https://unpkg.com/pdfjs-dist@5.4.394/standard_fonts/'
   } else {
     // In production, use local file from public folder
     const basePath = import.meta.env.BASE_URL || '/'
     const normalizedBasePath = basePath.endsWith('/') ? basePath : `${basePath}/`
     workerSrc = `${normalizedBasePath}pdf.worker.min.js`
+    standardFontDataUrl = 'https://unpkg.com/pdfjs-dist@5.4.394/standard_fonts/'
   }
   
   // Set up worker configuration function
@@ -23,16 +26,17 @@ if (typeof window !== 'undefined') {
     try {
       if (target) {
         if (!target.GlobalWorkerOptions) {
-          target.GlobalWorkerOptions = { workerSrc }
+          target.GlobalWorkerOptions = { workerSrc, standardFontDataUrl }
         } else {
-          // Try to set workerSrc, but it might be read-only
+          // Try to set workerSrc and standardFontDataUrl, but they might be read-only
           try {
             target.GlobalWorkerOptions.workerSrc = workerSrc
+            target.GlobalWorkerOptions.standardFontDataUrl = standardFontDataUrl
           } catch (e) {
-            // If workerSrc is read-only, try to replace the whole object
+            // If they're read-only, try to replace the whole object
             try {
               Object.defineProperty(target, 'GlobalWorkerOptions', {
-                value: { workerSrc },
+                value: { workerSrc, standardFontDataUrl },
                 writable: true,
                 configurable: true
               })
@@ -53,9 +57,10 @@ if (typeof window !== 'undefined') {
     (window as any).pdfjsLib = {}
   }
   if (!(window as any).pdfjsLib.GlobalWorkerOptions) {
-    (window as any).pdfjsLib.GlobalWorkerOptions = { workerSrc }
+    (window as any).pdfjsLib.GlobalWorkerOptions = { workerSrc, standardFontDataUrl }
   } else {
     (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
+    ;(window as any).pdfjsLib.GlobalWorkerOptions.standardFontDataUrl = standardFontDataUrl
   }
   
   // Also set up window.pdfjs for react-pdf compatibility
@@ -63,9 +68,10 @@ if (typeof window !== 'undefined') {
     (window as any).pdfjs = {}
   }
   if (!(window as any).pdfjs.GlobalWorkerOptions) {
-    (window as any).pdfjs.GlobalWorkerOptions = { workerSrc }
+    (window as any).pdfjs.GlobalWorkerOptions = { workerSrc, standardFontDataUrl }
   } else {
     (window as any).pdfjs.GlobalWorkerOptions.workerSrc = workerSrc
+    ;(window as any).pdfjs.GlobalWorkerOptions.standardFontDataUrl = standardFontDataUrl
   }
   
   // Configure pdfjs-dist directly
@@ -82,6 +88,7 @@ if (typeof window !== 'undefined') {
   if ((pdfjsAny as any).GlobalWorkerOptions) {
     try {
       (pdfjsAny as any).GlobalWorkerOptions.workerSrc = workerSrc
+      ;(pdfjsAny as any).GlobalWorkerOptions.standardFontDataUrl = standardFontDataUrl
     } catch (e) {
       // Continue if it fails
     }
