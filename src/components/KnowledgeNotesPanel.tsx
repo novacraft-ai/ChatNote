@@ -6,6 +6,7 @@ import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
 import { preprocessMathContent } from '../utils/markdownUtils'
 import { KnowledgeNote } from '../types/knowledgeNotes'
+import { analytics } from '../services/analyticsService'
 import './KnowledgeNotesPanel.css'
 
 interface KnowledgeNotesPanelProps {
@@ -77,6 +78,25 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
       return newSet
     })
   }, [])
+
+  // Track note mode viewing time
+  useEffect(() => {
+    // Start tracking when component mounts or mode changes
+    analytics.startNoteModeTracking(displayMode)
+    
+    return () => {
+      // End tracking when component unmounts or mode changes
+      analytics.endNoteModeTracking()
+    }
+  }, [displayMode])
+
+  // Track when panel closes
+  useEffect(() => {
+    if (!isVisible) {
+      // End tracking when panel becomes invisible
+      analytics.endNoteModeTracking()
+    }
+  }, [isVisible])
 
   // Update notes list height to match PDF content scroll height
   // And sync scroll position so notes scroll with PDF using the same scrollbar

@@ -345,7 +345,6 @@ export async function sendChatMessage(
                 fullReasoning += delta.reasoning
               }
             } catch (e) {
-              console.warn('Failed to parse streaming chunk:', e)
             }
           }
         }

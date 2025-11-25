@@ -9,6 +9,7 @@ import KnowledgeNoteConnections from './KnowledgeNoteConnections'
 import { Annotation, ImageAnnotation, TextBoxAnnotation, HighlightAnnotation, COMMON_COLORS } from '../types/annotations'
 import { saveAnnotatedPDF, downloadPDF } from '../utils/pdfAnnotationSaver'
 import { KnowledgeNote } from '../types/knowledgeNotes'
+import { analytics } from '../services/analyticsService'
 
 interface PDFViewerProps {
   file: File | null
@@ -581,10 +582,21 @@ function PDFViewer({
     console.error('PDF load error:', error)
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile && selectedFile.type === 'application/pdf') {
       onFileUpload(selectedFile)
+      
+      // Track PDF upload - create document first, then track the event
+      const fileSizeMb = selectedFile.size / (1024 * 1024)
+      const documentId = analytics.generateDocumentId()
+      analytics.setCurrentDocument(documentId)
+      
+      // Create document record first (required for foreign key)
+      await analytics.createDocument(documentId, fileSizeMb)
+      
+      // Then track the upload event
+      await analytics.trackPDFUpload(fileSizeMb, documentId)
     }
   }
 
@@ -1026,6 +1038,23 @@ function PDFViewer({
   const handleAnnotationCreate = useCallback((annotation: Annotation) => {
     setAnnotations((prev) => [...prev, annotation])
     setSelectedAnnotationId(annotation.id)
+    
+    // Track annotation addition
+    let toolName: 'highlight' | 'text' | 'image' = 'text'
+    if (annotation.type === 'highlight') {
+      toolName = 'highlight'
+    } else if (annotation.type === 'image') {
+      toolName = 'image'
+    } else if (annotation.type === 'textbox') {
+      toolName = 'text'
+    }
+    analytics.trackAnnotationAdded(toolName)
+    
+    // Update document to mark it has annotations
+    const currentDocId = analytics.getCurrentDocumentId()
+    if (currentDocId) {
+      analytics.updateDocument(currentDocId, { has_annotations: true })
+    }
   }, [])
 
   // Expose function to add annotation programmatically
@@ -1258,6 +1287,16 @@ function PDFViewer({
       const blob = await saveAnnotatedPDF(file, annotations, pageDimensionsRef.current)
       const filename = file.name.replace('.pdf', '_annotated.pdf')
       downloadPDF(blob, filename)
+      
+      // Track PDF export
+      const includeAnnotations = annotations.length > 0
+      await analytics.trackPDFExport(includeAnnotations)
+      
+      // Update document to mark that it has been exported
+      const currentDocId = analytics.getCurrentDocumentId()
+      if (currentDocId) {
+        await analytics.updateDocument(currentDocId, { has_export: true })
+      }
     } catch (error) {
       console.error('Error saving PDF:', error)
       alert('Failed to save annotated PDF. Please check the console for details.')

@@ -227,7 +227,6 @@ export async function saveAnnotatedPDF(
         throw new Error('No standard font available')
       }
       font = await pdfDoc.embedFont(fontName)
-      console.log('Using standard font (limited Unicode support)')
     }
     
     // Verify font is valid
@@ -546,7 +545,7 @@ export async function saveAnnotatedPDF(
                     font: font,
                   })
                 })
-                console.log('Drew text with Unicode characters replaced')
+                
               } catch (retryError) {
                 console.error('Failed to draw text even after replacing Unicode characters:', retryError)
                 // Skip this annotation to prevent PDF save failure
@@ -616,7 +615,7 @@ export async function saveAnnotatedPDF(
                 rotate: degrees(textAnnotation.rotation),
                 font: font,
               })
-              console.log('Drew text with Unicode characters replaced')
+              
             } catch (retryError) {
               console.error('Failed to draw text even after replacing Unicode characters:', retryError)
               // Skip this annotation to prevent PDF save failure

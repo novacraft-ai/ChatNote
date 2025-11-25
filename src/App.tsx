@@ -16,6 +16,7 @@ import { useAuth } from './contexts/AuthContext'
 import { BACKEND_URL, AUTO_MODELS } from './config'
 import DriveSyncPrompt from './components/DriveSyncPrompt'
 import Toast from './components/Toast'
+import { analytics } from './services/analyticsService'
 import './App.css'
 
 const PDFViewer = lazy(() => import('./components/PDFViewer'))
@@ -57,6 +58,11 @@ function AppContent() {
     }
     return lastSaveTime === 0 || lastModificationTime > lastSaveTime
   }, [currentPdfId, isAuthenticated, lastSaveTime, lastModificationTime])
+
+  // Track page view on mount
+  useEffect(() => {
+    analytics.trackPageView()
+  }, [])
 
   // Handle Drive OAuth callback redirect
   useEffect(() => {
@@ -272,7 +278,6 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
               // Reset save tracking for new PDF
               setLastSaveTime(0)
               setLastModificationTime(0)
-              console.log('PDF uploaded to Drive:', data.pdfId)
               // Invalidate cache so history updates
               invalidatePDFHistoryCache()
               markPDFHistoryNeedsRefresh(false)
@@ -288,6 +293,16 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
     } catch (error) {
       console.error('Failed to extract PDF text:', error)
       setPdfText('')
+      
+      // Track upload error
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Unknown error during PDF upload'
+      const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2)
+      await analytics.trackError(
+        'upload_fail',
+        `File: ${file.name}, Size: ${fileSizeMB}MB, Error: ${errorMessage}`
+      )
     } finally {
       setIsUploading(false)
     }

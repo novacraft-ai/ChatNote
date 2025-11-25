@@ -18,6 +18,7 @@ import QuizConfiguration from './QuizConfiguration'
 import type { InteractionMode, QuizSession, QuizQuestion } from '../types/interactionModes'
 import type { QuizQuestionType } from '../types/interactionModes'
 import { generateQuiz, evaluateAnswer } from '../services/quizService'
+import { analytics } from '../services/analyticsService'
 
 /**
  * Extract keywords from user question for relevance matching
@@ -1525,6 +1526,11 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
       abortControllerRef.current.abort()
     }
     abortControllerRef.current = new AbortController()
+    
+    // Track query submission
+    const queryStartTime = Date.now()
+    const isContextual = !!selectedText
+    analytics.trackQuerySubmitted(modelMode, layout, isContextual)
 
     let userMessageContent = userInput
     if (selectedText && !userInput) {
@@ -2102,10 +2108,22 @@ Follow these strict rules:
       } else {
         console.error('Error sending message (details logged, user sees sanitized message):', error)
         // Error message is already sanitized by sendChatMessage function
-        setError(error instanceof Error ? error.message : 'Unable to send message. Please try again.')
+        const errorMessage = error instanceof Error ? error.message : 'Unable to send message. Please try again.'
+        setError(errorMessage)
         setMessages((prev) => prev.filter((msg) => msg.id !== assistantMessageId))
+        
+        // Track AI timeout/error
+        const isTimeout = errorMessage.toLowerCase().includes('timeout') || 
+                         errorMessage.toLowerCase().includes('timed out')
+        if (isTimeout) {
+          await analytics.trackError('ai_timeout', `Model: ${modelMode}, Error: ${errorMessage}`)
+        }
       }
     } finally {
+      // Track AI response completion
+      const responseTimeMs = Date.now() - queryStartTime
+      analytics.trackAIResponse(modelMode, responseTimeMs)
+      
       setIsLoading(false)
       abortControllerRef.current = null
       inputRef.current?.focus()
@@ -3515,6 +3533,15 @@ Follow these strict rules:
                               className="message-action-button knowledge-note-button"
                               onClick={() => {
                                 if (onCreateKnowledgeNote) {
+                                  // Track AI result action
+                                  analytics.trackAIResultAction('save_note')
+                                  
+                                  // Update document to mark it has notes
+                                  const currentDocId = analytics.getCurrentDocumentId()
+                                  if (currentDocId) {
+                                    analytics.updateDocument(currentDocId, { has_notes: true })
+                                  }
+                                  
                                   // Check if user has selected text in chat history
                                   const selectedTextInChat = getSelectedTextInChat()
 
@@ -3568,6 +3595,15 @@ Follow these strict rules:
                               className="message-action-button add-to-pdf-button"
                               onClick={() => {
                                 if (onAddAnnotationToPDF) {
+                                  // Track AI result action
+                                  analytics.trackAIResultAction('add_to_pdf')
+                                  
+                                  // Update document to mark it has annotations
+                                  const currentDocId = analytics.getCurrentDocumentId()
+                                  if (currentDocId) {
+                                    analytics.updateDocument(currentDocId, { has_annotations: true })
+                                  }
+                                  
                                   // Check if user has selected text in chat history
                                   const selectedTextInChat = getSelectedTextInChat()
 

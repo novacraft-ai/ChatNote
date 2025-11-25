@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { BACKEND_URL } from '../config'
+import { analytics } from '../services/analyticsService'
 
 export interface User {
   id: string
@@ -55,6 +56,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json()
         setUser(data.user)
+        
+        // Initialize analytics user if not already set
+        if (!analytics.getUserId()) {
+          const analyticsUserId = analytics.generateUserId()
+          analytics.setUserId(analyticsUserId)
+          await analytics.upsertUser(analyticsUserId, data.user.email)
+        }
+        
         shouldSetLoading = true
       } else if (response.status === 401 || response.status === 403) {
         // Only remove token if it's actually invalid (401/403)
@@ -123,6 +132,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await response.json()
       localStorage.setItem('auth_token', data.token)
       setUser(data.user)
+      
+      // Initialize analytics user on login
+      let analyticsUserId = analytics.getUserId()
+      if (!analyticsUserId) {
+        analyticsUserId = analytics.generateUserId()
+        analytics.setUserId(analyticsUserId)
+      }
+      await analytics.upsertUser(analyticsUserId, data.user.email)
     } catch (error) {
       console.error('Login error:', error)
       console.error('Failed URL:', `${BACKEND_URL}/api/auth/google`)

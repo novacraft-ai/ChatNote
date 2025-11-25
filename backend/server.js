@@ -26,6 +26,10 @@ dotenv.config()
 const app = express()
 const PORT = process.env.PORT || 3000
 
+// Trust proxy - required when running behind a reverse proxy
+// This allows express-rate-limit to correctly identify users by their real IP
+app.set('trust proxy', 1)
+
 // Middleware
 // CORS configuration - use FRONTEND_URL from environment
 app.use(cors({
@@ -900,20 +904,16 @@ app.post('/api/drive/upload-pdf', authenticateToken, express.json({ limit: '100m
 
     const finalFileName = fileName || 'document.pdf'
 
-    console.log(`[Upload PDF] Starting upload for file: ${finalFileName}, size: ${pdfBuffer.length} bytes`)
+    
 
     const refreshToken = await getUserRefreshToken(req.user.id)
-    console.log('[Upload PDF] Got refresh token, creating folders...')
 
     const folders = await findOrCreateChatNoteFolders(refreshToken)
-    console.log('[Upload PDF] Folders created:', folders)
 
     // Generate PDF ID
     const pdfId = generatePdfId()
-    console.log('[Upload PDF] Generated PDF ID:', pdfId)
 
     // Upload original PDF
-    console.log('[Upload PDF] Uploading original PDF to Drive...')
     const originalPdfFileId = await uploadFileToDrive(
       folders.pdfsFolderId,
       `${pdfId}-original.pdf`,
@@ -921,7 +921,6 @@ app.post('/api/drive/upload-pdf', authenticateToken, express.json({ limit: '100m
       'application/pdf',
       refreshToken
     )
-    console.log('[Upload PDF] Original PDF uploaded, file ID:', originalPdfFileId)
 
     // Create metadata
     const metadata = {

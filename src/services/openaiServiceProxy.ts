@@ -97,7 +97,6 @@ export async function sendChatMessage(
                 onChunk(content)
               }
             } catch (e) {
-              console.warn('Failed to parse streaming chunk:', e)
             }
           }
         }

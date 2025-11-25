@@ -100,8 +100,9 @@ export async function refreshAccessToken(refreshToken) {
     console.error('Error refreshing token:', error)
     // If Google returns invalid_grant, the refresh token is no longer valid
     if (error?.response?.data?.error === 'invalid_grant') {
-      const err = new Error('INVALID_GRANT')
+      const err = new Error('Refresh token has been revoked or expired. User needs to re-authorize.')
       err.name = 'INVALID_GRANT'
+      err.code = 'invalid_grant'
       throw err
     }
     throw new Error('Failed to refresh access token. User may need to re-authorize.')
