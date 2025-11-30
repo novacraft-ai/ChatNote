@@ -5,7 +5,10 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase environment variables not configured. Analytics tracking will be disabled.');
+  // Only warn during development to avoid noisy logs in production builds
+  if (import.meta.env.DEV) {
+    console.warn('Supabase environment variables not configured. Analytics tracking will be disabled.');
+  }
 }
 
 // Create Supabase client

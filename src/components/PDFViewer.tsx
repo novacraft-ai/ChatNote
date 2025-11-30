@@ -11,6 +11,7 @@ import { saveAnnotatedPDF, downloadPDF } from '../utils/pdfAnnotationSaver'
 import { KnowledgeNote } from '../types/knowledgeNotes'
 import { analytics } from '../services/analyticsService'
 import { getRecentPDFsFromCache, prefetchRecentPDFs } from '../utils/pdfHistoryCache'
+import chatNoteIcon from '../assets/chatnote-logo.svg'
 
 interface PDFViewerProps {
   file: File | null
@@ -1326,7 +1327,7 @@ function PDFViewer({
     return (
       <div className={`pdf-viewer-empty ${layout === 'floating' ? 'float-layout' : ''}`}>  
         <div className="start-page-content">
-          <img src="/chatnote-icon.svg" alt="ChatNote Logo" className="start-logo" />
+          <img src={chatNoteIcon} alt="ChatNote Logo" className="start-logo" />
           <div className="upload-container">
             <label htmlFor="pdf-upload" className="upload-button modern-upload">
               <span className="upload-icon" aria-hidden="true">
