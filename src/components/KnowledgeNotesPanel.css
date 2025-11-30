@@ -464,6 +464,38 @@
   padding: 8px 0 60px 0; /* Add bottom padding to prevent last card from being cut off */
 }
 
+/* Scrollbar styling for stack mode - light theme */
+.knowledge-notes-list.stack-mode::-webkit-scrollbar {
+  width: 8px;
+}
+
+.knowledge-notes-list.stack-mode::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+}
+
+.knowledge-notes-list.stack-mode::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.knowledge-notes-list.stack-mode::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* Scrollbar styling for stack mode - dark theme */
+.theme-dark .knowledge-notes-list.stack-mode::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.theme-dark .knowledge-notes-list.stack-mode::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.theme-dark .knowledge-notes-list.stack-mode::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .empty-notes {
   padding: 40px 20px;
   text-align: center;

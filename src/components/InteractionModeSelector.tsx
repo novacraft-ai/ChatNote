@@ -62,7 +62,7 @@ export default function InteractionModeSelector({
           <h3>Guide Me Learn</h3>
           <p>Interactive learning with AI tutor assistance</p>
           <ul className="mode-features">
-            <li>💬 Chat with AI tutor about PDF</li>
+            <li>💬 Chat with AI about PDF</li>
             <li>📖 Get detailed explanations</li>
             <li>💡 Ask questions anytime</li>
             <li>🔍 Deep dive into any topic</li>
@@ -101,8 +101,8 @@ export default function InteractionModeSelector({
           <h3>Quiz Me</h3>
           <p>Test your knowledge with AI-generated quizzes</p>
           <ul className="mode-features">
-            <li>🎯 Multiple choice questions</li>
-            <li>🧠 AI-powered question generation</li>
+            <li>🎯 Multiple types questions</li>
+            <li>🧠 AI-powered generation</li>
             <li>📊 Track your progress</li>
             <li>🔄 Request more questions</li>
           </ul>

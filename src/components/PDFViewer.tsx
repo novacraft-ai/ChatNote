@@ -10,6 +10,7 @@ import { Annotation, ImageAnnotation, TextBoxAnnotation, HighlightAnnotation, CO
 import { saveAnnotatedPDF, downloadPDF } from '../utils/pdfAnnotationSaver'
 import { KnowledgeNote } from '../types/knowledgeNotes'
 import { analytics } from '../services/analyticsService'
+import { getRecentPDFsFromCache, prefetchRecentPDFs } from '../utils/pdfHistoryCache'
 
 interface PDFViewerProps {
   file: File | null
@@ -19,199 +20,20 @@ interface PDFViewerProps {
   onPageChange?: (pageNumber: number) => void
   onTotalPagesChange?: (totalPages: number) => void
   showKnowledgeNotes?: boolean
-  onToggleKnowledgeNotes?: () => void
   knowledgeNotes?: KnowledgeNote[]
   onScrollToPage?: (pageNumber: number) => void
   onNoteClick?: (note: KnowledgeNote) => void
-  pdfContentRef?: React.RefObject<HTMLDivElement> // Pass ref for scroll sync
-  onAddAnnotation?: (annotation: TextBoxAnnotation) => void // Callback to add annotation programmatically
-  initialAnnotations?: Annotation[] // Initial annotations when loading from history
-  onAnnotationsChange?: (annotations: Annotation[]) => void // Callback when annotations change
-  isLoadingPdf?: boolean // Loading state when loading PDF from history
-  onLoadingComplete?: () => void // Callback when PDF loading is complete
-  isSavingSession?: boolean // Saving state when starting new session
-  onNewSession?: () => void // Callback to start new session
-}
-
-// Font size input wrapper component that allows empty input
-const FontSizeInputWrapper: React.FC<{
-  selectedAnnotation: TextBoxAnnotation
-  onUpdate: (annotation: TextBoxAnnotation) => void
-}> = ({ selectedAnnotation, onUpdate }) => {
-  const [inputValue, setInputValue] = useState<string>(selectedAnnotation.fontSize.toString())
-  // Store the original font size to restore on blur if input is empty
-  const originalFontSizeRef = useRef<number>(selectedAnnotation.fontSize)
-
-  // Update input value and original font size when annotation changes (e.g., when switching annotations)
-  useEffect(() => {
-    originalFontSizeRef.current = selectedAnnotation.fontSize
-    setInputValue(selectedAnnotation.fontSize.toString())
-  }, [selectedAnnotation.id, selectedAnnotation.fontSize])
-
-  return (
-    <div
-      className="textbox-controls"
-      onClick={(e) => {
-        // Prevent clicks on controls from triggering text editing mode
-        // But allow native input behavior (like spinner arrows)
-        const target = e.target as HTMLElement
-        if (!target.closest('input[type="number"]')) {
-          e.stopPropagation()
-        }
-      }}
-      onMouseDown={(e) => {
-        // Prevent mousedown on controls from triggering text editing mode
-        // But allow native input behavior (like spinner arrows)
-        const target = e.target as HTMLElement
-        if (!target.closest('input[type="number"]')) {
-          e.stopPropagation()
-        }
-      }}
-    >
-      <div className="textbox-control-group">
-        <label className="textbox-control-label">Font Size:</label>
-        <div className="font-size-input-wrapper">
-          <button
-            type="button"
-            className="font-size-arrow-button font-size-arrow-left"
-            onClick={(e) => {
-              e.stopPropagation()
-              e.preventDefault()
-              const currentSize = parseInt(inputValue, 10) || originalFontSizeRef.current
-              const newSize = Math.max(1, currentSize - 1)
-              setInputValue(newSize.toString())
-              const updatedAnnotation = {
-                ...selectedAnnotation,
-                fontSize: newSize,
-              } as TextBoxAnnotation
-              onUpdate(updatedAnnotation)
-              originalFontSizeRef.current = newSize
-            }}
-            onMouseDown={(e) => {
-              e.stopPropagation()
-              e.preventDefault()
-            }}
-            title="Decrease font size"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-          </button>
-          <input
-            type="number"
-            min="1"
-            max="200"
-            value={inputValue}
-            onChange={(e) => {
-              const inputValue = e.target.value
-              setInputValue(inputValue) // Allow empty input
-
-              // Only update annotation when there's a valid value
-              if (inputValue === '' || inputValue === '-') {
-                return // Don't update, just allow the input to be empty or negative sign
-              }
-
-              const newSize = parseInt(inputValue, 10)
-              if (!isNaN(newSize) && newSize > 0) {
-                const clampedSize = Math.max(1, Math.min(200, newSize))
-                // Update the annotation with new font size
-                const updatedAnnotation = {
-                  ...selectedAnnotation,
-                  fontSize: clampedSize,
-                } as TextBoxAnnotation
-                onUpdate(updatedAnnotation)
-                originalFontSizeRef.current = clampedSize
-              }
-            }}
-            onBlur={(e) => {
-              const currentValue = e.target.value.trim()
-              // Restore original value if input is empty or invalid on blur
-              if (currentValue === '' || currentValue === '-' || isNaN(parseInt(currentValue, 10)) || parseInt(currentValue, 10) <= 0) {
-                // Restore to the original font size (not the current annotation value, which might have been changed)
-                setInputValue(originalFontSizeRef.current.toString())
-              } else {
-                // Ensure the displayed value matches the annotation value (in case of clamping)
-                const parsedValue = parseInt(currentValue, 10)
-                const clampedSize = Math.max(1, Math.min(200, parsedValue))
-                if (clampedSize !== parsedValue) {
-                  setInputValue(clampedSize.toString())
-                }
-                originalFontSizeRef.current = clampedSize
-              }
-            }}
-            onMouseDown={(e) => {
-              e.stopPropagation()
-            }}
-            onClick={(e) => {
-              e.stopPropagation()
-            }}
-            onFocus={(e) => {
-              e.stopPropagation()
-            }}
-            onWheel={(e) => {
-              // Prevent scrolling from changing the value when focused
-              e.stopPropagation()
-            }}
-            className="textbox-font-size-input"
-          />
-          <button
-            type="button"
-            className="font-size-arrow-button font-size-arrow-right"
-            onClick={(e) => {
-              e.stopPropagation()
-              e.preventDefault()
-              const currentSize = parseInt(inputValue, 10) || originalFontSizeRef.current
-              const newSize = Math.min(200, currentSize + 1)
-              setInputValue(newSize.toString())
-              const updatedAnnotation = {
-                ...selectedAnnotation,
-                fontSize: newSize,
-              } as TextBoxAnnotation
-              onUpdate(updatedAnnotation)
-              originalFontSizeRef.current = newSize
-            }}
-            onMouseDown={(e) => {
-              e.stopPropagation()
-              e.preventDefault()
-            }}
-            title="Increase font size"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 18 15 12 9 6"></polyline>
-            </svg>
-          </button>
-        </div>
-      </div>
-      <div className="textbox-control-group">
-        <label className="textbox-control-label">Color:</label>
-        <div className="textbox-color-picker">
-          {COMMON_COLORS.map((color) => (
-            <button
-              key={color}
-              className={`textbox-color-button ${selectedAnnotation.color === color ? 'active' : ''}`}
-              style={{ backgroundColor: color }}
-              onClick={(e) => {
-                e.stopPropagation()
-                e.preventDefault()
-                onUpdate({
-                  ...selectedAnnotation,
-                  color,
-                })
-              }}
-              onMouseDown={(e) => {
-                e.stopPropagation()
-                e.preventDefault()
-              }}
-              onFocus={(e) => {
-                e.stopPropagation()
-              }}
-              title={color}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  )
+  pdfContentRef?: React.RefObject<HTMLDivElement>
+  onAddAnnotation?: (annotation: TextBoxAnnotation) => void
+  initialAnnotations?: Annotation[]
+  onAnnotationsChange?: (annotations: Annotation[]) => void
+  isLoadingPdf?: boolean
+  onLoadingComplete?: () => void
+  isSavingSession?: boolean
+  onNewSession?: () => void
+  onToggleLayout?: () => void
+  isDriveAuthorized?: boolean
+  onSelectRecentPdf?: (pdfId: string) => void
 }
 
 function PDFViewer({
@@ -222,7 +44,6 @@ function PDFViewer({
   onPageChange,
   onTotalPagesChange,
   showKnowledgeNotes = true,
-  onToggleKnowledgeNotes,
   knowledgeNotes = [],
   onScrollToPage,
   onNoteClick,
@@ -233,6 +54,9 @@ function PDFViewer({
   onLoadingComplete,
   isSavingSession = false,
   onNewSession,
+  onToggleLayout,
+  isDriveAuthorized,
+  onSelectRecentPdf,
 }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number>(0)
   const [pageNumber, setPageNumber] = useState<number>(1)
@@ -243,8 +67,6 @@ function PDFViewer({
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const pdfContentRef = useRef<HTMLDivElement>(null)
   const pdfViewerRef = useRef<HTMLDivElement>(null)
-  const pdfControlsTopRef = useRef<HTMLDivElement>(null)
-  const pdfControlsBottomRef = useRef<HTMLDivElement>(null)
   const isScrollingRef = useRef(false)
   const pageDimensionsRef = useRef<Map<number, { width: number; height: number }>>(new Map())
 
@@ -785,26 +607,44 @@ function PDFViewer({
   }, [isEditingZoom])
 
   const handleFitWidth = () => {
-    if (!pdfViewerRef.current || pageDimensionsRef.current.size === 0) return
+    if (pageDimensionsRef.current.size === 0) return
 
-    const viewerRect = pdfViewerRef.current.getBoundingClientRect()
-    // In split mode, use the viewer width; in float mode, use viewer width (which accounts for knowledge notes)
-    let availableWidth: number
-    if (layout === 'split') {
-      // In split mode, the PDF viewer takes up the remaining space after the chat panel
-      availableWidth = viewerRect.width - 40 // Account for padding (20px on each side)
-    } else {
-      // In float mode, use the actual PDF viewer width (which is reduced when knowledge notes are visible)
-      // The viewerRect.width already accounts for the knowledge notes panel if it's visible
-      availableWidth = viewerRect.width - 40 // Account for padding (20px on each side)
+    // Prefer using the actual PDF content container's usable width. Subtract
+    // padding, potential vertical scrollbar, and a small safety margin to
+    // avoid 1px overflows that create a horizontal scrollbar.
+    let availableWidth: number | null = null
+    if (pdfContentRef.current) {
+      const el = pdfContentRef.current
+      const style = getComputedStyle(el)
+      const padLeft = parseFloat(style.paddingLeft || '0') || 0
+      const padRight = parseFloat(style.paddingRight || '0') || 0
+
+      // clientWidth includes padding; compute inner content width by
+      // subtracting paddings so we know how much width a centered page can use.
+      availableWidth = el.clientWidth - padLeft - padRight
+
+      // If there's a vertical scrollbar, subtract estimated scrollbar width
+      if (el.scrollHeight > el.clientHeight) {
+        availableWidth -= 12 // typical scrollbar width
+      }
+
+      // Safety margin to avoid off-by-one/rounding overflow
+      availableWidth = Math.max(0, availableWidth - 4)
+    } else if (pdfViewerRef.current) {
+      const viewerRect = pdfViewerRef.current.getBoundingClientRect()
+      availableWidth = Math.max(0, viewerRect.width - 40)
     }
+
+    if (!availableWidth || availableWidth <= 0) return
 
     // Get the first page dimensions (assuming all pages have similar dimensions)
     const firstPageDims = pageDimensionsRef.current.get(1)
     if (!firstPageDims) return
 
-    // Calculate scale to fit width
-    const newScale = availableWidth / firstPageDims.width
+    // Calculate scale to fit width based on the content container
+    // Calculate scale to fit width. Use a tiny shrink factor to ensure the
+    // rendered canvas doesn't exceed the container due to fractional pixels.
+    const newScale = (availableWidth / firstPageDims.width) * 0.999
     const clampedScale = Math.max(0.1, Math.min(newScale, 5.0)) // Clamp between 0.1 and 5.0
     setScale(clampedScale)
     setZoomInputValue(Math.round(clampedScale * 100).toString())
@@ -815,18 +655,6 @@ function PDFViewer({
 
     const viewerRect = pdfViewerRef.current.getBoundingClientRect()
 
-    // Get actual heights of control bars
-    let topControlsHeight = 0
-    let bottomControlsHeight = 0
-
-    if (pdfControlsTopRef.current) {
-      topControlsHeight = pdfControlsTopRef.current.getBoundingClientRect().height
-    }
-
-    if (pdfControlsBottomRef.current) {
-      bottomControlsHeight = pdfControlsBottomRef.current.getBoundingClientRect().height
-    }
-
     // Also account for AnnotationToolbar if present
     let annotationToolbarHeight = 0
     const annotationToolbar = pdfViewerRef.current.querySelector('.annotation-toolbar')
@@ -834,8 +662,8 @@ function PDFViewer({
       annotationToolbarHeight = annotationToolbar.getBoundingClientRect().height
     }
 
-    // Calculate available height: viewer height minus all control bars
-    const availableHeight = viewerRect.height - topControlsHeight - bottomControlsHeight - annotationToolbarHeight
+    // Calculate available height: viewer height minus toolbar
+    const availableHeight = viewerRect.height - annotationToolbarHeight
 
     // Get the current page dimensions
     const currentPageDims = pageDimensionsRef.current.get(pageNumber)
@@ -919,10 +747,14 @@ function PDFViewer({
       target.closest('.textbox-font-size-input') !== null ||
       target.closest('.textbox-color-button') !== null ||
       target.closest('.textbox-color-picker') !== null ||
+      target.closest('.floating-textbox-toolbar') !== null ||
+      target.closest('.color-swatch') !== null ||
       target.classList.contains('textbox-controls') ||
       target.classList.contains('textbox-font-size-input') ||
       target.classList.contains('textbox-color-button') ||
-      target.classList.contains('textbox-color-picker')
+      target.classList.contains('textbox-color-picker') ||
+      target.classList.contains('floating-textbox-toolbar') ||
+      target.classList.contains('color-swatch')
 
     if (isControlClick) {
       return // Don't process clicks on controls
@@ -1101,26 +933,51 @@ function PDFViewer({
 
   const handleAnnotationUpdate = useCallback((annotation: Annotation) => {
     setAnnotations((prev) => {
-      // First, update the annotation
-      const updated = prev.map((ann) => (ann.id === annotation.id ? annotation : ann))
-
-      // If updating a text box, recalculate height based on current content and font size
-      if (annotation.type === 'textbox') {
-        const textAnnotation = annotation as TextBoxAnnotation
-        // Find the page dimensions for this annotation
-        const pageDims = pageDimensionsRef.current.get(textAnnotation.pageNumber)
-        if (pageDims) {
-          const finalHeight = calculateTextBoxHeight(textAnnotation, pageDims, scale)
-
-          // Update the annotation with new height, preserving all other properties
-          return updated.map((ann) =>
-            ann.id === annotation.id
-              ? { ...textAnnotation, height: finalHeight }
-              : ann
-          )
+      let changed = false
+      const updated = prev.map((ann) => {
+        if (ann.id !== annotation.id) return ann
+        // Start with provided annotation and possibly recalc height
+        if (annotation.type === 'textbox') {
+          const textAnnotation = annotation as TextBoxAnnotation
+          const pageDims = pageDimensionsRef.current.get(textAnnotation.pageNumber)
+          if (pageDims) {
+            const finalHeight = calculateTextBoxHeight(textAnnotation, pageDims, scale)
+            // Only create a new object if height or other props changed meaningfully
+            if (
+              Math.abs((ann.height || 0) - finalHeight) > 0.0001 ||
+              Math.abs((ann.x || 0) - (textAnnotation.x || 0)) > 0.0001 ||
+              Math.abs((ann.y || 0) - (textAnnotation.y || 0)) > 0.0001 ||
+              Math.abs((ann.width || 0) - (textAnnotation.width || 0)) > 0.0001 ||
+              Math.abs((ann.rotation || 0) - (textAnnotation.rotation || 0)) > 0.0001 ||
+              (
+                ann.type === 'textbox' && (
+                  ((ann as TextBoxAnnotation).text !== textAnnotation.text) ||
+                  ((ann as TextBoxAnnotation).color !== textAnnotation.color) ||
+                  ((ann as TextBoxAnnotation).fontSize !== textAnnotation.fontSize)
+                )
+              )
+            ) {
+              changed = true
+              return { ...textAnnotation, height: finalHeight }
+            }
+            return ann
+          }
         }
-      }
-      return updated
+        // For non-textbox or no page dims, compare shallowly and update only if different
+        if (
+          Math.abs((ann.x || 0) - (annotation.x || 0)) > 0.0001 ||
+          Math.abs((ann.y || 0) - (annotation.y || 0)) > 0.0001 ||
+          Math.abs((ann.width || 0) - (annotation.width || 0)) > 0.0001 ||
+          Math.abs((ann.height || 0) - (annotation.height || 0)) > 0.0001 ||
+          Math.abs((ann.rotation || 0) - (annotation.rotation || 0)) > 0.0001 ||
+          (('color' in ann) && ('color' in annotation) && (ann as any).color !== (annotation as any).color)
+        ) {
+          changed = true
+          return annotation
+        }
+        return ann
+      })
+      return changed ? updated : prev
     })
   }, [scale, calculateTextBoxHeight])
 
@@ -1278,20 +1135,32 @@ function PDFViewer({
   }, [highlightedSelectionId])
 
   const handleDownload = useCallback(async () => {
-    if (!file || annotations.length === 0) {
-      alert('No annotations to save')
-      return
-    }
+    if (!file) return
 
     try {
+      if (annotations.length === 0) {
+        // No annotations: allow downloading original PDF file as-is
+        const filename = file.name
+        downloadPDF(file, filename)
+
+        // Track PDF export (no annotations)
+        await analytics.trackPDFExport(false)
+
+        const currentDocId = analytics.getCurrentDocumentId()
+        if (currentDocId) {
+          await analytics.updateDocument(currentDocId, { has_export: true })
+        }
+        return
+      }
+
+      // There are annotations: generate annotated PDF
       const blob = await saveAnnotatedPDF(file, annotations, pageDimensionsRef.current)
       const filename = file.name.replace('.pdf', '_annotated.pdf')
       downloadPDF(blob, filename)
-      
+
       // Track PDF export
-      const includeAnnotations = annotations.length > 0
-      await analytics.trackPDFExport(includeAnnotations)
-      
+      await analytics.trackPDFExport(true)
+
       // Update document to mark that it has been exported
       const currentDocId = analytics.getCurrentDocumentId()
       if (currentDocId) {
@@ -1302,6 +1171,23 @@ function PDFViewer({
       alert('Failed to save annotated PDF. Please check the console for details.')
     }
   }, [file, annotations])
+
+  // Listen to NavBar events (add window-level listeners so toolbar controls in NavBar work)
+  useEffect(() => {
+    const handlePdfNewSessionEvent = () => {
+      if (onNewSession) onNewSession()
+    }
+    const handlePdfDownloadEvent = () => {
+      handleDownload()
+    }
+
+    window.addEventListener('pdf-new-session', handlePdfNewSessionEvent)
+    window.addEventListener('pdf-download', handlePdfDownloadEvent)
+    return () => {
+      window.removeEventListener('pdf-new-session', handlePdfNewSessionEvent)
+      window.removeEventListener('pdf-download', handlePdfDownloadEvent)
+    }
+  }, [onNewSession, handleDownload])
 
   // Handle drag and drop for images
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1410,26 +1296,77 @@ function PDFViewer({
     [pageNumber, numPages, scale, handleAnnotationCreate]
   )
 
+  // Recent PDFs state + background prefetch (stale-while-revalidate)
+  const [recentPdfsState, setRecentPdfsState] = useState<any[]>(() => getRecentPDFsFromCache(3))
+
+  useEffect(() => {
+    let mounted = true
+    if (isDriveAuthorized) {
+      prefetchRecentPDFs(3)
+        .then((fresh) => {
+          if (!mounted) return
+          if (fresh && fresh.length > 0) setRecentPdfsState(fresh)
+        })
+        .catch(() => {
+          // Ignore background prefetch errors
+        })
+    }
+    return () => {
+      mounted = false
+    }
+  }, [isDriveAuthorized])
+
   if (!file && !isLoadingPdf) {
+    // Only show recent PDFs if user isDriveAuthorized
+    // Props are now destructured above
+    // Use shared utility to get recent PDFs
+    // Note: component-level state will handle background prefetch updates
+    const recentPdfs = recentPdfsState
+
     return (
-      <div className={`pdf-viewer-empty ${layout === 'floating' ? 'float-layout' : ''}`}>
-        <div className="upload-container">
-          <label htmlFor="pdf-upload" className="upload-button">
-            Upload PDF
-          </label>
-          <input
-            id="pdf-upload"
-            type="file"
-            accept="application/pdf"
-            onChange={handleFileChange}
-            style={{ display: 'none' }}
-          />
+      <div className={`pdf-viewer-empty ${layout === 'floating' ? 'float-layout' : ''}`}>  
+        <div className="start-page-content">
+          <img src="/chatnote-icon.svg" alt="ChatNote Logo" className="start-logo" />
+          <div className="upload-container">
+            <label htmlFor="pdf-upload" className="upload-button modern-upload">
+              <span className="upload-icon" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 19V6M5 12l7-7 7 7" /><rect x="3" y="19" width="18" height="2" rx="1" /></svg>
+              </span>
+              <span>Upload PDF</span>
+            </label>
+            <input
+              id="pdf-upload"
+              type="file"
+              accept="application/pdf"
+              onChange={handleFileChange}
+              style={{ display: 'none' }}
+            />
+          </div>
+          {isDriveAuthorized && recentPdfs.length > 0 && (
+            <div className="recent-pdf-suggestions">
+              <div className="suggestions-title">Recent PDFs</div>
+              <div className="suggestions-list">
+                {recentPdfs.map((pdf: any, idx: number) => (
+                  <button
+                    key={pdf.pdfId || idx}
+                    className="suggestion-card"
+                    onClick={() => onSelectRecentPdf && onSelectRecentPdf(pdf.pdfId)}
+                  >
+                    <span className="suggestion-icon" aria-hidden="true">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
+                    </span>
+                    <span className="suggestion-name">{pdf.displayName || pdf.originalFileName}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
   }
 
-  const selectedAnnotation = annotations.find((ann) => ann.id === selectedAnnotationId) || null
+  // selectedAnnotation removed - annotation controls are handled in AnnotationLayer (floating toolbar)
 
   return (
     <div className={`pdf-viewer ${isSavingSession ? 'saving-session' : ''}`} ref={pdfViewerRef}>
@@ -1460,72 +1397,33 @@ function PDFViewer({
         isHighlightActive={!!highlightedSelectionId}
         showColorPicker={showColorPicker}
         onImageUpload={handleImageUpload}
-        onDownload={handleDownload}
-        onNewSession={onNewSession}
+        
+        onToggleLayout={onToggleLayout}
         onClearAll={() => {
           setAnnotations([])
           setSelectedAnnotationId(null)
         }}
+        // PDF controls
+        pageNumber={pageNumber}
+        numPages={numPages}
+        onPrevPage={goToPrevPage}
+        onNextPage={goToNextPage}
+        scale={scale}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onFitWidth={handleFitWidth}
+        onFitHeight={handleFitHeight}
+        layout={layout}
+        onZoomInputClick={handleZoomInputClick}
+        isEditingZoom={isEditingZoom}
+        zoomInputValue={zoomInputValue}
+        onZoomInputChange={handleZoomInputChange}
+        onZoomInputBlur={handleZoomInputBlur}
+        onZoomInputKeyDown={handleZoomInputKeyDown}
+        onZoomInputPaste={handleZoomInputPaste}
+        zoomInputRef={zoomInputRef}
+        // removed passing selectedAnnotation and onAnnotationUpdate since textbox controls are now floating
       />
-      <div className="pdf-controls-top" ref={pdfControlsTopRef}>
-        {selectedAnnotation && selectedAnnotation.type === 'textbox' && (
-          <FontSizeInputWrapper
-            selectedAnnotation={selectedAnnotation as TextBoxAnnotation}
-            onUpdate={handleAnnotationUpdate}
-          />
-        )}
-        <div className="zoom-controls">
-          <button onClick={handleFitWidth} className="control-button fit-button" title="Fit to width">
-            ↔
-          </button>
-          <button onClick={handleFitHeight} className="control-button fit-button" title="Fit to height">
-            ↕
-          </button>
-          <button onClick={handleZoomOut} className="control-button">
-            −
-          </button>
-          {isEditingZoom ? (
-            <input
-              ref={zoomInputRef}
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              value={zoomInputValue}
-              onChange={handleZoomInputChange}
-              onBlur={handleZoomInputBlur}
-              onKeyDown={handleZoomInputKeyDown}
-              onPaste={handleZoomInputPaste}
-              className="zoom-input"
-            />
-          ) : (
-            <span
-              className="zoom-level"
-              onClick={handleZoomInputClick}
-              title="Click to edit zoom level"
-            >
-              {Math.round(scale * 100)}%
-            </span>
-          )}
-          <button onClick={handleZoomIn} className="control-button">
-            +
-          </button>
-          {onToggleKnowledgeNotes && (
-            <button
-              onClick={onToggleKnowledgeNotes}
-              className="control-button knowledge-notes-toggle"
-              title={showKnowledgeNotes ? 'Hide knowledge notes' : 'Show knowledge notes'}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="16" y1="13" x2="8" y2="13" />
-                <line x1="16" y1="17" x2="8" y2="17" />
-                <polyline points="10 9 9 9 8 9" />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
       <div
         ref={pdfContentRef}
         className={`pdf-content ${isDragOver ? 'drag-over' : ''}`}
@@ -1612,25 +1510,6 @@ function PDFViewer({
             })}
           </Document>
         )}
-      </div>
-      <div className="pdf-controls-bottom" ref={pdfControlsBottomRef}>
-        <button
-          onClick={goToPrevPage}
-          disabled={pageNumber <= 1}
-          className="nav-button"
-        >
-          Previous
-        </button>
-        <span className="page-info">
-          Page {pageNumber} of {numPages}
-        </span>
-        <button
-          onClick={goToNextPage}
-          disabled={pageNumber >= numPages}
-          className="nav-button"
-        >
-          Next
-        </button>
       </div>
     </div>
   )

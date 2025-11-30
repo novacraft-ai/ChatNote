@@ -132,9 +132,9 @@
 /* Split chat: left panel */
 .chat-container.split-chat {
   position: relative;
-  width: 500px;
+  width: var(--chat-width, 500px);
   min-width: 350px;
-  max-width: 600px;
+  max-width: 800px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -143,49 +143,7 @@
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Enhanced aesthetic divider with improved visibility */
-.chat-container.split-chat::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0.05) 0%,
-    rgba(0, 0, 0, 0.15) 10%,
-    rgba(0, 0, 0, 0.25) 30%,
-    rgba(0, 0, 0, 0.3) 50%,
-    rgba(0, 0, 0, 0.25) 70%,
-    rgba(0, 0, 0, 0.15) 90%,
-    rgba(0, 0, 0, 0.05) 100%
-  );
-  box-shadow: 
-    -2px 0 4px rgba(0, 0, 0, 0.1),
-    -1px 0 2px rgba(0, 0, 0, 0.15),
-    inset 1px 0 2px rgba(255, 255, 255, 0.1);
-  z-index: 1;
-  border-right: 1px solid rgba(0, 0, 0, 0.1);
-}
-
-[data-theme='dark'] .chat-container.split-chat::before {
-  background: linear-gradient(
-    to bottom,
-    rgba(255, 255, 255, 0.05) 0%,
-    rgba(255, 255, 255, 0.15) 10%,
-    rgba(255, 255, 255, 0.25) 30%,
-    rgba(255, 255, 255, 0.3) 50%,
-    rgba(255, 255, 255, 0.25) 70%,
-    rgba(255, 255, 255, 0.15) 90%,
-    rgba(255, 255, 255, 0.05) 100%
-  );
-  box-shadow: 
-    -2px 0 6px rgba(0, 0, 0, 0.4),
-    -1px 0 3px rgba(0, 0, 0, 0.5),
-    inset 1px 0 2px rgba(255, 255, 255, 0.1);
-  border-right: 1px solid rgba(255, 255, 255, 0.15);
-}
+/* Divider removed - now using ResizableDivider component */
 
 /* Hide chat when knowledge notes are open on narrow screens */
 @media (max-width: 1024px) {

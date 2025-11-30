@@ -11,9 +11,28 @@ interface AnnotationToolbarProps {
   isHighlightActive?: boolean
   showColorPicker?: boolean
   onImageUpload: (file: File) => void
-  onDownload: () => void
-  onNewSession?: () => void
+  layout?: 'floating' | 'split'
+  onToggleLayout?: () => void
   onClearAll?: () => void
+  // PDF controls
+  pageNumber?: number
+  numPages?: number
+  onPrevPage?: () => void
+  onNextPage?: () => void
+  scale?: number
+  onZoomIn?: () => void
+  onZoomOut?: () => void
+  onFitWidth?: () => void
+  onFitHeight?: () => void
+  onZoomInputClick?: () => void
+  isEditingZoom?: boolean
+  zoomInputValue?: string
+  onZoomInputChange?: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onZoomInputBlur?: () => void
+  onZoomInputKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
+  onZoomInputPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void
+  zoomInputRef?: React.RefObject<HTMLInputElement>
+  // removed textbox-specific props - use floating toolbar instead
 }
 
 const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
@@ -26,9 +45,30 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   isHighlightActive = false,
   showColorPicker = false,
   onImageUpload,
-  onDownload,
-  onNewSession,
+  layout,
+  onToggleLayout,
+  
   onClearAll,
+  // PDF controls
+  pageNumber,
+  numPages,
+  onPrevPage,
+  onNextPage,
+  scale,
+  onZoomIn,
+  onZoomOut,
+  onFitWidth,
+  onFitHeight,
+  
+  onZoomInputClick,
+  isEditingZoom,
+  zoomInputValue,
+  onZoomInputChange,
+  onZoomInputBlur,
+  onZoomInputKeyDown,
+  onZoomInputPaste,
+  zoomInputRef,
+  // selectedAnnotation and onAnnotationUpdate were removed (textbox controls moved to floating toolbar)
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isConfirmingClear, setIsConfirmingClear] = useState(false)
@@ -107,14 +147,17 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
 
   return (
     <div className="annotation-toolbar">
-      <div className="toolbar-section">
+
+      <div className="toolbar-left">
+        {/* Annotation tools */}
+        <div className="toolbar-section annotation-tools">
         <button
           className={`toolbar-button ${isHighlightActive ? 'active' : ''}`}
           onClick={onHighlightClick}
           disabled={!hasTextSelection}
           title={hasTextSelection ? (isHighlightActive ? "Remove highlight" : "Highlight text") : "Select text to highlight"}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M9 11l-6 6v3h9l3-3" />
             <path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
           </svg>
@@ -122,18 +165,11 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
         <button
           className={`toolbar-button ${mode === 'textbox' ? 'active' : ''}`}
           onClick={() => onModeChange('textbox')}
-          title="Add text box (click on PDF to add)"
+          title="Add text box"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M4 20h16" />
-            <path d="M6 4v16" />
-            <path d="M18 4v16" />
-            <path d="M4 7h16" />
-            <path d="M4 10h16" />
-            <path d="M4 13h16" />
-            <path d="M4 16h16" />
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M4 7V4h16v3M9 20h6M12 4v16" />
           </svg>
-          <span className="toolbar-button-text">Text</span>
         </button>
         <button
           className={`toolbar-button ${mode === 'image' ? 'active' : ''}`}
@@ -141,26 +177,24 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
             onModeChange('image')
             fileInputRef.current?.click()
           }}
-          title="Add image (click to upload)"
+          title="Add image"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
             <circle cx="8.5" cy="8.5" r="1.5" />
             <polyline points="21 15 16 10 5 21" />
           </svg>
-          <span className="toolbar-button-text">Image</span>
         </button>
         {onClearAll && (
           <button
             className={`toolbar-button clear-button ${isConfirmingClear ? 'confirming' : ''}`}
             onClick={handleClearClick}
-            title={isConfirmingClear ? "Click again to clear all annotations" : "Clear all annotations"}
+            title={isConfirmingClear ? "Click again to clear all" : "Clear all"}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="3 6 5 6 21 6" />
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
             </svg>
-            <span className="toolbar-button-text">Clear All</span>
           </button>
         )}
         <input
@@ -170,42 +204,125 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
           onChange={handleFileChange}
           style={{ display: 'none' }}
         />
+        </div>
+
+        {showColorPicker && onHighlightColorChange && (
+          <div className="toolbar-section color-picker">
+            {highlightColors.map(color => (
+              <button
+                key={color}
+                className={`color-button ${highlightColor === color ? 'active' : ''}`}
+                style={{ backgroundColor: color }}
+                onClick={() => onHighlightColorChange(color)}
+                title="Highlight color"
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      {showColorPicker && onHighlightColorChange && (
-        <div className="toolbar-section color-picker">
-          {highlightColors.map(color => (
+      <div className="toolbar-center">
+        {/* PDF navigation */}
+        {pageNumber !== undefined && numPages !== undefined && (
+          <div className="toolbar-section pdf-navigation">
             <button
-              key={color}
-              className={`color-button ${highlightColor === color ? 'active' : ''}`}
-              style={{ backgroundColor: color }}
-              onClick={() => onHighlightColorChange(color)}
-              title="Select highlight color"
-            />
-          ))}
-        </div>
-      )}
-
-      <div className="toolbar-section toolbar-actions">
-        {onNewSession && (
-          <button className="toolbar-button new-session-button" onClick={onNewSession} title="Start new session (save current and upload new PDF)">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="12" y1="18" x2="12" y2="12" />
-              <line x1="9" y1="15" x2="15" y2="15" />
-            </svg>
-            <span className="toolbar-button-text">New Session</span>
-          </button>
+              className="toolbar-button nav-button"
+              onClick={onPrevPage}
+              disabled={pageNumber <= 1}
+              title="Previous page"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 18 9 12 15 6"></polyline>
+              </svg>
+            </button>
+            <span className="page-info">{pageNumber} / {numPages}</span>
+            <button
+              className="toolbar-button nav-button"
+              onClick={onNextPage}
+              disabled={pageNumber >= numPages}
+              title="Next page"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            </button>
+          </div>
         )}
-        <button className="toolbar-button download-button" onClick={onDownload} title="Download annotated PDF">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          <span className="toolbar-button-text">Download</span>
-        </button>
+
+        {/* PDF zoom controls */}
+        {scale !== undefined && (
+          <div className="toolbar-section zoom-controls">
+            <button onClick={onFitWidth} className="toolbar-button" title="Fit width">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="5 9 2 12 5 15"></polyline>
+                <polyline points="19 9 22 12 19 15"></polyline>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+              </svg>
+            </button>
+            <button onClick={onFitHeight} className="toolbar-button" title="Fit height">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="9 5 12 2 15 5"></polyline>
+                <polyline points="9 19 12 22 15 19"></polyline>
+                <line x1="12" y1="2" x2="12" y2="22"></line>
+              </svg>
+            </button>
+            <button onClick={onZoomOut} className="toolbar-button" title="Zoom out">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            {isEditingZoom ? (
+              <input
+                ref={zoomInputRef}
+                type="text"
+                inputMode="numeric"
+                value={zoomInputValue}
+                onChange={onZoomInputChange}
+                onBlur={onZoomInputBlur}
+                onKeyDown={onZoomInputKeyDown}
+                onPaste={onZoomInputPaste}
+                className="zoom-input"
+              />
+            ) : (
+              <span className="zoom-level" onClick={onZoomInputClick} title="Click to edit zoom">
+                {Math.round((scale || 1) * 100)}%
+              </span>
+            )}
+            <button onClick={onZoomIn} className="toolbar-button" title="Zoom in">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            {/* show/hide notes button moved to the Chat header */}
+          </div>
+        )}
+      </div>
+
+      <div className="toolbar-right">
+        {/* Actions */}
+        <div className="toolbar-section toolbar-actions">
+          <button
+            className="toolbar-button layout-toggle-button"
+            onClick={onToggleLayout}
+            title={layout === 'floating' ? 'Switch to split layout' : 'Switch to floating layout'}
+          >
+            {layout === 'floating' ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="7" height="7" />
+                <rect x="14" y="3" width="7" height="7" />
+                <rect x="14" y="14" width="7" height="7" />
+                <line x1="10" y1="3" x2="10" y2="10" />
+                <line x1="3" y1="10" x2="10" y2="10" />
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+              </svg>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   )

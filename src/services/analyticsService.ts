@@ -11,8 +11,18 @@ class AnalyticsService {
   private currentNoteMode: 'following' | 'stack' | null = null;
 
   constructor() {
-    // Generate session ID on initialization
-    this.sessionId = this.generateSessionId();
+    // Restore or generate session ID for this tab/session
+    const storedSessionId = typeof window !== 'undefined'
+      ? sessionStorage.getItem('analytics_session_id')
+      : null;
+    if (storedSessionId) {
+      this.sessionId = storedSessionId;
+    } else {
+      this.sessionId = this.generateSessionId();
+      try {
+        sessionStorage.setItem('analytics_session_id', this.sessionId);
+      } catch {}
+    }
   }
 
   /**
@@ -22,12 +32,7 @@ class AnalyticsService {
     return `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   }
 
-  /**
-   * Generate a unique user ID
-   */
-  generateUserId(): string {
-    return `user_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
-  }
+  // Remove random user ID generation; always use setUserId from AuthContext
 
   /**
    * Generate a unique document ID
@@ -87,17 +92,15 @@ class AnalyticsService {
   ): Promise<void> {
     // Skip if Supabase is not configured
     if (!supabase) {
-      console.warn('Analytics tracking disabled: Supabase not configured');
+      console.warn('[Analytics] Tracking disabled: Supabase not configured');
       return;
     }
 
-    // Auto-generate user ID if not exists (for anonymous tracking)
-    let userId = this.getUserId();
+    // Use userId set from AuthContext (Google ID)
+    const userId = this.getUserId();
     if (!userId) {
-      userId = this.generateUserId();
-      this.setUserId(userId);
-      // Create anonymous user record
-      await this.upsertUser(userId, 'anonymous@chatnote.app');
+      console.warn('[Analytics] No user ID set for event tracking.');
+      return;
     }
 
     try {
@@ -114,18 +117,35 @@ class AnalyticsService {
         .insert([event]);
 
       if (error) {
-        console.error('Failed to track event:', error);
+        console.error('[Analytics] Failed to track event:', eventName, error);
       }
     } catch (error) {
-      console.error('Error tracking event:', error);
+      console.error('[Analytics] Error tracking event:', eventName, error);
     }
   }
 
   /**
-   * Track page view
+   * Track page view - should only be called once after successful login
    */
   async trackPageView(): Promise<void> {
     await this.trackEvent('page_viewed', {});
+  }
+
+  /**
+   * Reset analytics state (call on logout)
+   */
+  async resetAnalytics(): Promise<void> {
+    // End any ongoing note mode tracking before resetting
+    await this.endNoteModeTracking();
+    
+    this.userId = null;
+    this.currentDocumentId = null;
+    this.noteModeStartTime = null;
+    this.currentNoteMode = null;
+    // Clear user ID from localStorage
+    try {
+      localStorage.removeItem('analytics_user_id');
+    } catch {}
   }
 
   /**
@@ -198,19 +218,36 @@ class AnalyticsService {
 
   /**
    * Start tracking note mode viewing
+   * If already tracking a different mode, end the previous tracking first
    */
-  startNoteModeTracking(mode: 'following' | 'stack'): void {
-    // If already tracking a mode, end it first
-    if (this.noteModeStartTime !== null && this.currentNoteMode !== null) {
-      this.endNoteModeTracking();
+  async startNoteModeTracking(mode: 'following' | 'stack'): Promise<void> {
+    // If we're already tracking a different mode, end it first and insert the record
+    if (this.noteModeStartTime !== null && this.currentNoteMode !== null && this.currentNoteMode !== mode) {
+      // Calculate duration for the OLD mode
+      const durationMs = Date.now() - this.noteModeStartTime;
+
+      // Insert record for the OLD mode if duration is meaningful
+      if (durationMs >= 100) {
+        await this.trackEvent('note_mode_viewed', {
+          view_mode: this.currentNoteMode, // Use the OLD mode
+          duration_ms: durationMs,
+        });
+      }
+      
+      // Reset state
+      this.noteModeStartTime = null;
+      this.currentNoteMode = null;
     }
 
-    this.currentNoteMode = mode;
-    this.noteModeStartTime = Date.now();
+    // Start tracking the new mode only if not already tracking
+    if (this.noteModeStartTime === null) {
+      this.noteModeStartTime = Date.now();
+      this.currentNoteMode = mode;
+    }
   }
 
   /**
-   * End tracking note mode viewing and send event
+   * End tracking note mode viewing and send event to database
    */
   async endNoteModeTracking(): Promise<void> {
     if (this.noteModeStartTime === null || this.currentNoteMode === null) {
@@ -218,11 +255,14 @@ class AnalyticsService {
     }
 
     const durationMs = Date.now() - this.noteModeStartTime;
-    
-    await this.trackEvent('note_mode_viewed', {
-      view_mode: this.currentNoteMode,
-      duration_ms: durationMs,
-    });
+
+    // Only track if duration is meaningful (at least 100ms)
+    if (durationMs >= 100) {
+      await this.trackEvent('note_mode_viewed', {
+        view_mode: this.currentNoteMode,
+        duration_ms: durationMs,
+      });
+    }
 
     // Reset tracking state
     this.noteModeStartTime = null;
@@ -246,42 +286,55 @@ class AnalyticsService {
    * Create or update user in database
    */
   async upsertUser(userId: string, email: string): Promise<void> {
-    if (!supabase) return;
+    if (!supabase) {
+      return;
+    }
 
     try {
-      // Check if user exists
-      const { data: existingUser } = await supabase
+      // First check if user exists by user_id
+      const { data: existingUser, error: selectError } = await supabase
         .from('users')
-        .select('user_id')
+        .select('user_id, email')
         .eq('user_id', userId)
         .single();
 
-      if (existingUser) {
-        // User exists, just update email if needed
-        const { error } = await supabase
-          .from('users')
-          .update({ email })
-          .eq('user_id', userId);
+      if (selectError && selectError.code !== 'PGRST116') {
+        // PGRST116 = not found, which is fine
+        console.error('Error checking existing user:', selectError);
+        return;
+      }
 
-        if (error) {
-          console.error('Failed to update user:', error);
+      if (existingUser) {
+        // User exists, update email if different
+        if (existingUser.email !== email) {
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({ email })
+            .eq('user_id', userId);
+
+          if (updateError) {
+            console.error('Failed to update user email:', updateError);
+          }
         }
       } else {
-        // New user, insert with first_login_at
-        const { error } = await supabase
+        // User doesn't exist, insert new record
+        const { error: insertError } = await supabase
           .from('users')
-          .insert([
-            {
-              user_id: userId,
-              email: email,
-              first_login_at: new Date().toISOString(),
-            },
-          ]);
+          .insert({
+            user_id: userId,
+            email: email,
+          });
 
-        if (error) {
-          console.error('Failed to create user:', error);
+        if (insertError) {
+          // Ignore duplicate email errors - user might have multiple sessions
+          if (insertError.code !== '23505') {
+            console.error('Failed to insert user:', insertError);
+          }
         }
       }
+
+      // For new users, update first_login_at separately if needed
+      // Or handle this with a database trigger: ON INSERT SET first_login_at = now()
     } catch (error) {
       console.error('Error upserting user:', error);
     }

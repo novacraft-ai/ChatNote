@@ -17,6 +17,8 @@ import { BACKEND_URL, AUTO_MODELS } from './config'
 import DriveSyncPrompt from './components/DriveSyncPrompt'
 import Toast from './components/Toast'
 import { analytics } from './services/analyticsService'
+import ResizableDivider from './components/ResizableDivider'
+import { type ModelMode } from './components/ModelModeToggle'
 import './App.css'
 
 const PDFViewer = lazy(() => import('./components/PDFViewer'))
@@ -51,6 +53,16 @@ function AppContent() {
   const hasMarkedInitialHistoryRef = useRef(false)
   const resetModeCallbackRef = useRef<(() => void) | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  
+  // Model mode and chat width state for resizable divider
+  const [modelMode, setModelMode] = useState<ModelMode>(() => {
+    const saved = localStorage.getItem('chatModelMode')
+    return (saved === 'auto' || saved === 'reasoning' || saved === 'advanced') ? saved : 'auto'
+  })
+  const [chatWidth, setChatWidth] = useState<number>(() => {
+    const saved = localStorage.getItem('chatWidth')
+    return saved ? parseInt(saved, 10) : 500
+  })
 
   const hasCurrentPdfUnsavedChanges = useMemo(() => {
     if (!currentPdfId || !isAuthenticated) {
@@ -58,11 +70,6 @@ function AppContent() {
     }
     return lastSaveTime === 0 || lastModificationTime > lastSaveTime
   }, [currentPdfId, isAuthenticated, lastSaveTime, lastModificationTime])
-
-  // Track page view on mount
-  useEffect(() => {
-    analytics.trackPageView()
-  }, [])
 
   // Handle Drive OAuth callback redirect
   useEffect(() => {
@@ -89,6 +96,26 @@ function AppContent() {
     }
   }, [])
 
+  // Persist model mode to localStorage
+  useEffect(() => {
+    localStorage.setItem('chatModelMode', modelMode)
+  }, [modelMode])
+
+  // Persist chat width to localStorage
+  useEffect(() => {
+    localStorage.setItem('chatWidth', chatWidth.toString())
+  }, [chatWidth])
+
+  // Handler for model mode change from ChatGPTEmbedded
+  const handleModelModeChange = useCallback((mode: ModelMode) => {
+    setModelMode(mode)
+  }, [])
+
+  // Handler for chat width resize from ResizableDivider
+  const handleChatWidthResize = useCallback((width: number) => {
+    setChatWidth(width)
+  }, [])
+
   // Auto-authorize Drive when user logs in
   useEffect(() => {
     if (isAuthenticated && user && !hasMarkedInitialHistoryRef.current) {
@@ -105,6 +132,8 @@ function AppContent() {
     } else if (!isAuthenticated) {
       setDriveAuthChecked(false)
       hasMarkedInitialHistoryRef.current = false
+      // End note mode tracking before logout (handled in AuthContext, but ensure it's done)
+      analytics.endNoteModeTracking()
       // Clear all PDF state on logout
       setPdfFile(null)
       setPdfText('')
@@ -410,7 +439,8 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
 
   const handleSaveAnnotations = useCallback(async () => {
     if (!currentPdfId || !isAuthenticated) return
-    if (annotations.length === 0) return
+    // Always attempt to save annotations, even if the array is empty.
+    // This ensures the server reflects deletions (clearing all annotations).
 
     try {
       const token = localStorage.getItem('auth_token')
@@ -436,7 +466,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
 
   const handleSaveKnowledgeNotes = useCallback(async () => {
     if (!currentPdfId || !isAuthenticated) return
-    if (knowledgeNotes.length === 0) return
+    // Always attempt to save knowledge notes, even if empty, so deletions are persisted.
 
     try {
       const token = localStorage.getItem('auth_token')
@@ -573,6 +603,9 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
     // Remember if chat was visible
     const wasChatVisible = isChatVisible
     
+    // End note mode tracking before closing panel
+    await analytics.endNoteModeTracking()
+    
     // Auto-fold knowledge panel
     setShowKnowledgeNotes(false)
     
@@ -619,7 +652,12 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
       }
     }
 
+    // End note mode tracking before loading new PDF
+    await analytics.endNoteModeTracking()
+
     setIsLoadingPdf(true)
+    // Hide knowledge notes panel by default when switching PDFs from history
+    setShowKnowledgeNotes(false)
     // Clear current PDF and its data first to show loading state
     setPdfFile(null)
     setAnnotations([])
@@ -692,10 +730,8 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
       // Reset to first page
       setCurrentPageNumber(1)
 
-      // Show knowledge notes panel if notes exist
-      if (data.knowledgeNotes && data.knowledgeNotes.length > 0) {
-        setShowKnowledgeNotes(true)
-      }
+      // Keep knowledge notes panel hidden by default when loading from history
+      // Users can open it manually if needed
 
       // Keep loading state true - it will be cleared when PDF document loads
       // The PDFViewer will handle clearing it via onDocumentLoadSuccess
@@ -709,6 +745,9 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
 
   const handleNewSession = async () => {
     const hadUnsavedChanges = hasCurrentPdfUnsavedChanges
+
+    // End note mode tracking before starting new session
+    await analytics.endNoteModeTracking()
 
     if (hadUnsavedChanges) {
       setIsSavingSession(true)
@@ -747,9 +786,9 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
 
   // Track modification time when annotations or notes change
   useEffect(() => {
-    if (annotations.length > 0 || knowledgeNotes.length > 0) {
-      setLastModificationTime(Date.now())
-    }
+    // Update modification time on any change to annotations or knowledge notes
+    // This ensures deletions (when arrays become empty) are detected as modifications
+    setLastModificationTime(Date.now())
   }, [annotations, knowledgeNotes])
 
   // Auto-save annotations and notes when they change
@@ -811,7 +850,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
                 }
               }}
               showKnowledgeNotes={showKnowledgeNotes}
-              onToggleKnowledgeNotes={() => setShowKnowledgeNotes(!showKnowledgeNotes)}
+              onToggleLayout={toggleChatLayout}
               knowledgeNotes={knowledgeNotes}
               onScrollToPage={handleScrollToPage}
               onNoteClick={(note) => {
@@ -827,6 +866,8 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
               onLoadingComplete={() => setIsLoadingPdf(false)}
               isSavingSession={isSavingSession}
               onNewSession={handleNewSession}
+              isDriveAuthorized={isDriveAuthorized}
+              onSelectRecentPdf={handleLoadPdfFromHistory}
             />
           </Suspense>
         </ErrorBoundary>
@@ -848,12 +889,31 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
             pdfContentRef={(window as any).__pdfContentRef ? { current: (window as any).__pdfContentRef } : undefined}
           />
         )}
+        {chatLayout === 'split' && isChatVisible && pdfFile && (
+          <ResizableDivider
+            modelMode={modelMode}
+            onResize={handleChatWidthResize}
+            initialWidth={chatWidth}
+            minWidth={350}
+            maxWidth={800}
+          />
+        )}
         {isChatVisible && pdfFile && (
-          <div className={`chat-container ${chatLayout === 'floating' ? 'floating-chat' : 'split-chat'} ${showKnowledgeNotes ? 'knowledge-notes-open' : ''}`}>
+          <div 
+            className={`chat-container ${chatLayout === 'floating' ? 'floating-chat' : 'split-chat'} ${showKnowledgeNotes ? 'knowledge-notes-open' : ''}`}
+            style={chatLayout === 'split' ? { '--chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}
+          >
             <ChatGPTEmbedded
               selectedText={selectedText}
               pdfText={pdfText}
               onToggleLayout={toggleChatLayout}
+              onToggleKnowledgeNotes={async () => {
+                if (showKnowledgeNotes) {
+                  await analytics.endNoteModeTracking()
+                }
+                setShowKnowledgeNotes(prev => !prev)
+              }}
+              showKnowledgeNotes={showKnowledgeNotes}
               layout={chatLayout}
               currentPageNumber={currentPageNumber}
               pdfTotalPages={(window as any).__pdfTotalPages}
@@ -867,6 +927,8 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
               onModeChange={handleModeChange}
               resetModeRef={resetModeCallbackRef}
               onRequestPageChange={setCurrentPageNumber}
+              modelMode={modelMode}
+              onModelModeChange={handleModelModeChange}
               onAddAnnotationToPDF={(text: string, pageNumber: number, textYPosition?: number) => {
                 // Create text box annotation and add it to PDF
                 if ((window as any).__addPDFAnnotation) {

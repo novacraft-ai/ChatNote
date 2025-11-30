@@ -115,93 +115,100 @@ Focus on testing understanding, not just memorization.`
 
 ${focusPages ? `Focus on pages: ${focusPages.join(', ')}\n\n` : ''}${pdfText}`
 
-  const messages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ]
 
-  try {
-    const response = await sendChatMessage(messages, REASONING_MODELS[0])
-
-    // Handle response which is always a string from sendChatMessage
-    const content = typeof response === 'string' ? response : ''
-    
-    // Extract JSON from response - look for array boundaries
-    const jsonMatch = content.match(/\[[\s\S]*\]/)
-    if (!jsonMatch) {
-      console.error('No JSON array found in response:', content.substring(0, 500))
-      throw new Error('Failed to parse quiz questions from AI response')
-    }
-
-    let jsonString = jsonMatch[0]
-    
-    // Clean up common JSON issues from AI responses
-    // Fix improperly escaped quotes in strings
-    try {
-      // Try parsing first
-      const questions: QuizQuestion[] = JSON.parse(jsonString)
-      
-      // Validate and sanitize questions
-      return questions.map((q, index) => {
-        const sanitized: QuizQuestion = {
-          id: q.id || `q${index + 1}`,
-          type: q.type || 'multiple-choice',
-          question: q.question,
-          correctAnswer: q.correctAnswer,
-          explanation: q.explanation,
-          pageReference: q.pageReference,
-          difficulty: q.difficulty || 'medium'
-        }
-        
-        // Only include options for multiple-choice questions
-        if (q.type === 'multiple-choice' && q.options) {
-          sanitized.options = q.options
-        }
-        
-        return sanitized
-      })
-    } catch (parseError) {
-      // If parsing fails, try to fix common issues
-      console.warn('Initial JSON parse failed, attempting to clean:', parseError)
-      
-      // Remove any markdown code block markers
-      jsonString = jsonString.replace(/```json\s*/g, '').replace(/```\s*/g, '')
-      
-      // Try to fix escaped newlines and tabs that might be breaking JSON
-      jsonString = jsonString
-        .replace(/\\n/g, ' ')  // Replace literal \n with space
-        .replace(/\\t/g, ' ')  // Replace literal \t with space
-        .replace(/\n/g, ' ')   // Replace actual newlines with space
-        .replace(/\t/g, ' ')   // Replace actual tabs with space
-        .replace(/\r/g, ' ')   // Replace carriage returns with space
-      
-      // Try parsing again
-      const questions: QuizQuestion[] = JSON.parse(jsonString)
-      
-      // Validate and sanitize questions
-      return questions.map((q, index) => {
-        const sanitized: QuizQuestion = {
-          id: q.id || `q${index + 1}`,
-          type: q.type || 'multiple-choice',
-          question: q.question,
-          correctAnswer: q.correctAnswer,
-          explanation: q.explanation,
-          pageReference: q.pageReference,
-          difficulty: q.difficulty || 'medium'
-        }
-        
-        // Only include options for multiple-choice questions
-        if (q.type === 'multiple-choice' && q.options) {
-          sanitized.options = q.options
-        }
-        
-        return sanitized
-      })
-    }
-  } catch (error) {
-    console.error('Quiz generation error:', error)
-    throw new Error('Failed to generate quiz. Please try again.')
+  // Truncate PDF text if too large (e.g., 6000 chars)
+  const MAX_PDF_LENGTH = 6000;
+  let truncatedPdfText = pdfText;
+  if (pdfText.length > MAX_PDF_LENGTH) {
+    truncatedPdfText = pdfText.slice(0, MAX_PDF_LENGTH);
   }
+
+  let lastError = null;
+  // Retry logic: up to 3 attempts per model
+  for (let modelIdx = 0; modelIdx < REASONING_MODELS.length; modelIdx++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await sendChatMessage([
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt.replace(pdfText, truncatedPdfText) }
+        ], REASONING_MODELS[modelIdx]);
+
+        const content = typeof response === 'string' ? response : '';
+        // Try to extract JSON array first
+        let jsonMatch = content.match(/\[[\s\S]*\]/);
+        let jsonString = jsonMatch ? jsonMatch[0] : null;
+
+        // If no array, try to extract single object
+        if (!jsonString) {
+          const objMatch = content.match(/\{[\s\S]*\}/);
+          if (objMatch) {
+            jsonString = `[${objMatch[0]}]`;
+          }
+        }
+
+        if (!jsonString) {
+          console.error('No JSON array/object found in response:', content.substring(0, 500));
+          lastError = new Error('Failed to parse quiz questions from AI response');
+          continue;
+        }
+
+        // Clean up common JSON issues from AI responses
+        jsonString = jsonString.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        jsonString = jsonString
+          .replace(/\\n/g, ' ')
+          .replace(/\\t/g, ' ')
+          .replace(/\n/g, ' ')
+          .replace(/\t/g, ' ')
+          .replace(/\r/g, ' ');
+
+        let questions: QuizQuestion[] = [];
+        try {
+          questions = JSON.parse(jsonString);
+        } catch (parseError) {
+          console.warn('JSON parse failed, attempting to fix:', parseError);
+          // Try to fix trailing commas
+          jsonString = jsonString.replace(/,\s*([}\]])/g, '$1');
+          questions = JSON.parse(jsonString);
+        }
+
+        // Validate and sanitize questions, filter out blanks
+        const validQuestions = questions
+          .map((q, index) => {
+            const sanitized: QuizQuestion = {
+              id: q.id || `q${index + 1}`,
+              type: q.type || 'multiple-choice',
+              question: q.question,
+              correctAnswer: q.correctAnswer,
+              explanation: q.explanation,
+              pageReference: q.pageReference,
+              difficulty: q.difficulty || 'medium'
+            };
+            if (q.type === 'multiple-choice' && q.options) {
+              sanitized.options = q.options;
+            }
+            return sanitized;
+          })
+          .filter(q => q.question && typeof q.question === 'string' && q.question.trim().length > 0 && (q.type !== 'multiple-choice' || (Array.isArray(q.options) && q.options.length > 0)));
+
+        if (validQuestions.length > 0) {
+          return validQuestions;
+        }
+        // If no valid questions, retry
+        console.warn(`Attempt ${attempt + 1}: No valid questions, retrying...`);
+      } catch (error: any) {
+        lastError = error;
+        // If error is rate limit or payload too large, try next model
+        if (error?.message?.includes('rate limit') || error?.message?.includes('Payload Too Large')) {
+          console.warn('Model error, trying next fallback:', error?.message);
+          break;
+        }
+        // For other errors, break
+        break;
+      }
+    }
+  }
+  console.error('Quiz generation error:', lastError);
+  throw new Error('Failed to generate quiz. Please try again.');
 }
 
 /**

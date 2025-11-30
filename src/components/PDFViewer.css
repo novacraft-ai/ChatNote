@@ -32,20 +32,223 @@
   background-color: #1a1a1a;
 }
 
+
+.start-page-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-top: 40px;
+}
+
+
+.start-logo {
+  width: 96px;
+  height: 96px;
+  margin-bottom: 32px;
+  border-radius: 50%;
+  padding: 16px;
+    background: radial-gradient(circle at 50% 40%, rgba(57,105,168,0.12) 0%, rgba(57,105,168,0.08) 40%, rgba(245,245,245,0.02) 100%);
+    box-shadow: 0 8px 28px rgba(10,20,40,0.28), inset 0 1px 0 rgba(255,255,255,0.6);
+    display: inline-block;
+}
+  .start-logo {
+    /* Remove circular background — show SVG directly and enlarge */
+    width: 160px;
+    height: 160px;
+    border-radius: 0;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+    display: block;
+  }
+
+  /* Make the inner SVG or img larger and centered */
+  .start-logo img, .start-logo svg {
+    width: 140px;
+    height: 140px;
+    display: block;
+    margin: 0 auto;
+  }
+
 .upload-container {
   display: flex;
   align-items: center;
   justify-content: center;
-  position: fixed;
-  /* Smooth transition for position changes when switching layouts */
-  /* Only transition when layout changes, not on initial render */
-  transition: top 0.5s ease-in-out, left 0.5s ease-in-out, transform 0.5s ease-in-out;
-  z-index: 1001;
-  /* Above floating chat (z-index: 1000) */
-  /* Set initial centered position to prevent animation from top-left */
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  margin-bottom: 32px;
+}
+
+.modern-upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 36px;
+  background: linear-gradient(90deg, #3969A8 0%, #152143 100%);
+  color: #fff;
+  border: none;
+  border-radius: 32px;
+  font-size: 20px;
+  font-weight: 600;
+  box-shadow: 0 4px 24px rgba(57,105,168,0.12);
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  position: relative;
+}
+.modern-upload:hover {
+  background: linear-gradient(90deg, #27477a 0%, #081A3C 100%);
+  box-shadow: 0 6px 32px rgba(57,105,168,0.18);
+}
+  .modern-upload {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 32px;
+    background: linear-gradient(180deg, var(--upload-grad-top, #3f6fb8) 0%, var(--upload-grad-bottom, #27477a) 100%);
+    color: var(--upload-text, #fff);
+    border: none;
+    border-radius: 28px;
+    font-size: 16px;
+    font-weight: 600;
+    box-shadow: 0 8px 30px rgba(20,40,80,0.18), 0 2px 6px rgba(0,0,0,0.2);
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+  .modern-upload:active { transform: translateY(1px) }
+  .modern-upload:hover { box-shadow: 0 10px 38px rgba(20,40,80,0.22); }
+
+  /* Dark theme adjustments for upload button */
+  [data-theme='dark'] .modern-upload {
+    --upload-grad-top: #27477a;
+    --upload-grad-bottom: #081A3C;
+    --upload-text: #fff;
+  }
+  [data-theme='light'] .modern-upload {
+    --upload-grad-top: #4b79d8;
+    --upload-grad-bottom: #2b5aa3;
+    --upload-text: #fff;
+  }
+.upload-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recent-pdf-suggestions {
+  width: 100%;
+  max-width: 400px;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.suggestions-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #3969A8;
+  margin-bottom: 10px;
+  letter-spacing: 0.5px;
+}
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px; /* tightened spacing between suggestion cards */
+  width: 100%;
+}
+/* Suggestion card: minimal by default, highlight on hover/focus */
+.suggestion-card {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* slightly smaller gap between icon and text */
+  background: transparent; /* no background by default */
+  border: none; /* no border by default */
+  border-radius: 10px;
+  padding: 8px 12px; /* reduced padding to make cards more compact */
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--suggestion-text, #10203a);
+  box-shadow: none; /* no shadow by default */
+  cursor: pointer;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease, transform 0.10s ease;
+  width: 100%;
+  text-align: left;
+}
+
+/* Hover and focus states: show highlighted background and subtle border/shadow */
+.suggestion-card:hover,
+.suggestion-card:focus {
+  transform: translateY(-2px);
+  background: var(--suggestion-hover-bg, rgba(39,71,122,0.06));
+  /* do not show any border line — use shadow only for highlight */
+  box-shadow: 0 10px 30px rgba(10,20,40,0.06);
+  outline: none;
+}
+
+.suggestion-card:focus-visible {
+  /* stronger shadow and accessible outline, but no border */
+  box-shadow: 0 12px 36px rgba(10,20,40,0.09);
+  outline: 3px solid rgba(66,133,244,0.12);
+}
+  .recent-pdf-suggestions {
+    width: 100%;
+    max-width: 520px;
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .suggestions-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--suggestion-title, #27477a);
+    margin-bottom: 8px;
+    letter-spacing: 0.3px;
+  }
+  .suggestions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px; /* match tightened spacing */
+    width: 100%;
+  }
+  /* Ensure theme variables for hover are present */
+  .suggestion-card {
+    /* keep minimal defaults — theme variables define colors */
+  }
+  .suggestion-card:hover { transform: translateY(-2px); }
+  .suggestion-icon { display: flex; align-items: center; justify-content: center; color: var(--suggestion-accent, #27477a); }
+  .suggestion-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Dark theme */
+  [data-theme='dark'] .recent-pdf-suggestions .suggestions-title { --suggestion-title: #9fb6e4; }
+  [data-theme='dark'] .suggestion-card { --suggestion-bg: #0f1520; --suggestion-border: #1f2a36; --suggestion-text: #cfcfcf; --suggestion-accent: #9fb6e4; --suggestion-hover-bg: rgba(159,182,228,0.06); --suggestion-hover-border: rgba(159,182,228,0.14); }
+
+  /* Light theme */
+  [data-theme='light'] .recent-pdf-suggestions .suggestions-title { --suggestion-title: #27477a; }
+  [data-theme='light'] .suggestion-card { --suggestion-bg: #ffffff; --suggestion-border: #e6eaf0; --suggestion-text: #424242; --suggestion-accent: #27477a; --suggestion-hover-bg: rgba(39,71,122,0.06); --suggestion-hover-border: rgba(39,71,122,0.12); }
+.suggestion-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3969A8;
+}
+.suggestion-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Make icon and text slightly transparent by default, stronger on hover/focus */
+.suggestion-icon,
+.suggestion-name {
+  opacity: 0.86; /* slightly translucent */
+  transition: opacity 0.16s ease;
+}
+.suggestion-card:hover .suggestion-icon,
+.suggestion-card:hover .suggestion-name,
+.suggestion-card:focus .suggestion-icon,
+.suggestion-card:focus .suggestion-name {
+  opacity: 1; /* fully opaque on hover/focus */
 }
 
 /* In float mode, position upload button in the upper area between navbar and model selector bar area */
@@ -209,10 +412,10 @@
   overflow-x: auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 20px;
+  align-items: stretch; /* allow pages to expand to full width */
+  padding: 12px; /* reduced padding so pages sit closer to edges */
   background-color: #525252;
-  gap: 20px;
+  gap: 12px; /* reduced vertical gap between pages */
   min-width: 0;
   transition: background-color 0.2s;
 }
@@ -230,12 +433,21 @@
 
 /* Page wrapper for scroll detection */
 .pdf-page-wrapper {
-  margin-bottom: 20px;
+  margin-bottom: 12px; /* tighter spacing between pages */
   display: flex;
   justify-content: center;
   flex-shrink: 0;
   min-width: fit-content;
   position: relative;
+  width: 100%; /* allow wrapper to take full container width */
+}
+
+/* Ensure the rendered page canvas can scale down/up to fit the wrapper */
+.react-pdf__Page, .react-pdf__Page__canvas, .react-pdf__Page canvas {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
 }
 
 .pdf-page-wrapper:last-child {
@@ -517,6 +729,16 @@
 
 [data-theme='dark'] .pdf-content::-webkit-scrollbar-thumb:hover {
   background: #555;
+}
+
+/* Bottom-right corner where horizontal and vertical scrollbars meet */
+.pdf-content::-webkit-scrollbar-corner {
+  background: #000; /* black corner to match dark UI */
+}
+
+/* Ensure corner is black in dark theme as well */
+[data-theme='dark'] .pdf-content::-webkit-scrollbar-corner {
+  background: #000;
 }
 
 /* Textbox controls in pdf-controls-top */

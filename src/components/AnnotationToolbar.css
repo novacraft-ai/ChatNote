@@ -1,13 +1,14 @@
 .annotation-toolbar {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 8px 16px;
+  gap: 12px;
+  padding: 6px 12px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   flex-wrap: wrap;
   z-index: 200; /* Above overlay (z-index 1) */
+  min-height: 40px;
 }
 
 [data-theme='dark'] .annotation-toolbar {
@@ -18,7 +19,75 @@
 .toolbar-section {
   display: flex;
   align-items: center;
+  gap: 4px;
+}
+
+.toolbar-section.textbox-controls-section {
+  padding-right: 12px;
+  margin-right: 4px;
+}
+
+[data-theme='dark'] .toolbar-section.textbox-controls-section {
+  /* no separator in dark theme for textbox controls */
+}
+
+.toolbar-section.annotation-tools {
+  padding-right: 12px;
+  margin-right: 4px;
+  display: flex;
   gap: 8px;
+}
+
+[data-theme='dark'] .toolbar-section.annotation-tools {
+  /* no separator here in dark theme */
+}
+
+.toolbar-section.pdf-navigation {
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
+  /* tighten separator spacing so it's closer to the nav buttons */
+  padding-right: 8px;
+  margin-right: 0;
+}
+
+[data-theme='dark'] .toolbar-section.pdf-navigation {
+  border-right-color: rgba(255, 255, 255, 0.1);
+}
+
+.toolbar-section.zoom-controls {
+  /* ensure left/right margins are symmetric */
+  margin-left: 4px;
+  margin-right: 4px;
+  padding-right: 12px;
+}
+
+[data-theme='dark'] .toolbar-section.zoom-controls {
+  /* no separator here in dark theme */
+}
+
+.toolbar-section.toolbar-actions {
+  /* keep as normal section inside right group */
+}
+
+/* Layout groups: left/center/right */
+.toolbar-left,
+.toolbar-center,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 0;
+}
+
+.toolbar-left {
+  justify-content: flex-start;
+}
+
+.toolbar-center {
+  justify-content: center;
+}
+
+.toolbar-right {
+  justify-content: flex-end;
 }
 
 .toolbar-group {
@@ -41,35 +110,34 @@
   display: flex;
   align-items: center;
   gap: 0;
-  padding: 6px;
-  min-width: 32px;
-  height: 32px;
+  padding: 5px;
+  min-width: 28px;
+  height: 28px;
   justify-content: center;
   background: transparent;
   border: 1px solid rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   color: #333;
   transition: all 0.2s;
   position: relative;
+  flex-shrink: 0;
 }
 
-.toolbar-button:hover {
-  gap: 6px;
-  padding: 6px 12px;
-  min-width: auto;
+/* annotation toolbar buttons: keep natural size (no equal distribution) */
+.toolbar-section.annotation-tools .toolbar-button {
+  min-width: 44px;
+  justify-content: center;
+}
+
+.toolbar-button:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.05);
   border-color: rgba(0, 0, 0, 0.3);
 }
 
-.toolbar-button-text {
-  display: none;
-  white-space: nowrap;
-}
-
-.toolbar-button:hover .toolbar-button-text {
-  display: inline;
+.toolbar-button svg {
+  flex-shrink: 0;
 }
 
 [data-theme='dark'] .toolbar-button {
@@ -168,6 +236,183 @@
   color: white;
 }
 
+/* Page info */
+.page-info {
+  font-size: 12px;
+  color: #666;
+  min-width: 50px;
+  text-align: center;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .page-info {
+  color: #8e8ea0;
+}
+
+/* Zoom controls */
+.zoom-level {
+  min-width: 40px;
+  text-align: center;
+  font-size: 12px;
+  color: #666;
+  transition: color 0.3s, background-color 0.2s;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.zoom-level:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='dark'] .zoom-level {
+  color: #8e8ea0;
+}
+
+[data-theme='dark'] .zoom-level:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.zoom-input {
+  min-width: 40px;
+  width: 50px;
+  text-align: center;
+  font-size: 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  padding: 4px;
+  background-color: #ffffff;
+  color: #333;
+  transition: border-color 0.2s;
+}
+
+.zoom-input:focus {
+  outline: none;
+  border-color: #4285f4;
+  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
+}
+
+[data-theme='dark'] .zoom-input {
+  background-color: #2a2a2a;
+  border-color: #444;
+  color: #ececf1;
+}
+
+[data-theme='dark'] .zoom-input:focus {
+  border-color: #4285f4;
+  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.3);
+}
+
+/* Textbox controls */
+.textbox-control-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.textbox-control-label {
+  font-size: 12px;
+  color: #666;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .textbox-control-label {
+  color: #8e8ea0;
+}
+
+.font-size-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background-color: #ffffff;
+  overflow: hidden;
+}
+
+[data-theme='dark'] .font-size-input-wrapper {
+  background-color: #2a2a2a;
+  border-color: #444;
+}
+
+.font-size-arrow-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background-color: transparent;
+  color: #666;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+
+.font-size-arrow-button:hover {
+  background-color: #f5f5f5;
+  color: #4285f4;
+}
+
+[data-theme='dark'] .font-size-arrow-button {
+  color: #8e8ea0;
+}
+
+[data-theme='dark'] .font-size-arrow-button:hover {
+  background-color: #3a3a3a;
+  color: #5a9cf8;
+}
+
+.font-size-display {
+  min-width: 32px;
+  text-align: center;
+  font-size: 12px;
+  color: #333;
+  padding: 0 4px;
+}
+
+[data-theme='dark'] .font-size-display {
+  color: #ececf1;
+}
+
+.textbox-color-picker {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.textbox-color-button {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.2s, border-color 0.2s;
+  flex-shrink: 0;
+}
+
+[data-theme='dark'] .textbox-color-button {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.textbox-color-button:hover {
+  transform: scale(1.1);
+  border-color: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='dark'] .textbox-color-button:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.textbox-color-button.active {
+  border-color: #4285f4;
+  border-width: 3px;
+  transform: scale(1.15);
+}
+
 .clear-button {
   /* Default state - normal button */
 }
@@ -202,5 +447,13 @@
   background: #c82333 !important;
   border-color: #c82333 !important;
   color: white !important;
+}
+
+
+/* Responsive: hide the annotation tools (left four buttons) on narrow screens */
+@media (max-width: 720px) {
+  .toolbar-section.annotation-tools {
+    display: none;
+  }
 }
 

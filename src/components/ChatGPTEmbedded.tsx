@@ -913,7 +913,7 @@ function extractThinking(content: string): { thinking: string | null; mainConten
 interface ChatGPTEmbeddedProps {
   selectedText: string
   pdfText: string
-  onToggleLayout: () => void
+  onToggleLayout?: () => void
   layout: 'floating' | 'split'
   currentPageNumber?: number
   pdfTotalPages?: number
@@ -921,12 +921,16 @@ interface ChatGPTEmbeddedProps {
   onClearSelectedText?: () => void
   onAddAnnotationToPDF?: (text: string, pageNumber: number, textYPosition?: number) => void
   onOpenKnowledgeNotes?: () => void
+  onToggleKnowledgeNotes?: () => void
+  showKnowledgeNotes?: boolean
   onModeChange?: (mode: InteractionMode) => void
   resetModeRef?: React.MutableRefObject<(() => void) | null>
   onRequestPageChange?: (page: number) => void
+  modelMode?: ModelMode
+  onModelModeChange?: (mode: ModelMode) => void
 }
 
-function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, currentPageNumber, onCreateKnowledgeNote, onClearSelectedText, onAddAnnotationToPDF, onOpenKnowledgeNotes, onModeChange, resetModeRef }: ChatGPTEmbeddedProps) {
+function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onCreateKnowledgeNote, onClearSelectedText, onAddAnnotationToPDF, onOpenKnowledgeNotes, onToggleKnowledgeNotes, showKnowledgeNotes, onModeChange, resetModeRef, modelMode: externalModelMode, onModelModeChange }: ChatGPTEmbeddedProps) {
   const { theme } = useTheme()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
 
@@ -986,7 +990,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
   const [isCheckingApiKey, setIsCheckingApiKey] = useState(true)
   const [isCollapsed, setIsCollapsed] = useState(true)
   const [savedScrollPosition, setSavedScrollPosition] = useState<number | null>(null)
-  const [modelMode, setModelMode] = useState<ModelMode>('auto')
+  const [modelMode, setModelMode] = useState<ModelMode>(externalModelMode || 'auto')
   const [isInputFocused, setIsInputFocused] = useState(false)
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null) // Track which image is enlarged (using messageId-index format)
   const [uploadedImages, setUploadedImages] = useState<string[]>([]) // Array of base64 image URLs
@@ -1312,6 +1316,10 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
 
   const handleModeChange = (mode: ModelMode) => {
     setModelMode(mode)
+    // Sync with parent if callback provided
+    if (onModelModeChange) {
+      onModelModeChange(mode)
+    }
     // Clear uploaded images when switching away from auto mode (vision models)
     if (mode !== 'auto' && uploadedImages.length > 0) {
       setUploadedImages([])
@@ -1336,6 +1344,13 @@ function ChatGPTEmbedded({ selectedText, pdfText, onToggleLayout, layout, curren
       setUploadedImages([])
     }
   }, [modelMode]) // Only depend on modelMode, not uploadedImages
+
+  // Sync external modelMode with internal state
+  useEffect(() => {
+    if (externalModelMode && externalModelMode !== modelMode) {
+      setModelMode(externalModelMode)
+    }
+  }, [externalModelMode])
 
   const processImageFiles = (files: FileList | File[]) => {
     const fileArray = Array.from(files)
@@ -2905,36 +2920,17 @@ Follow these strict rules:
             )}
             {layout === 'floating' && (
               <>
+                {/* Layout switch moved to AnnotationToolbar (in PDF viewer) */}
                 <button
-                  onClick={onToggleLayout}
-                  className="layout-toggle-button"
-                  title={layout === 'floating' ? 'Switch to split layout' : 'Switch to floating layout'}
-                  aria-label={layout === 'floating' ? 'Switch to split layout' : 'Switch to floating layout'}
+                  onClick={onToggleKnowledgeNotes}
+                  className="notes-toggle-button collapse-button"
+                  title={showKnowledgeNotes ? 'Hide knowledge notes' : 'Show knowledge notes'}
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    {layout === 'floating' ? (
-                      <>
-                        <rect x="3" y="3" width="7" height="7" />
-                        <rect x="14" y="3" width="7" height="7" />
-                        <rect x="14" y="14" width="7" height="7" />
-                        <line x1="10" y1="3" x2="10" y2="10" />
-                        <line x1="3" y1="10" x2="10" y2="10" />
-                      </>
-                    ) : (
-                      <>
-                        <rect x="3" y="3" width="18" height="18" rx="2" />
-                        <line x1="9" y1="3" x2="9" y2="21" />
-                      </>
-                    )}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
                   </svg>
                 </button>
                 <button
@@ -3217,12 +3213,9 @@ Follow these strict rules:
                                   ),
                                   // Wrap math blocks in scrollable containers
                                   div: ({ children, className, ...props }) => {
-                                    // Check if this is a math block (KaTeX renders block math in divs with katex-display)
-                                    // Only wrap if it's a katex-display div and not already wrapped
                                     if (className && typeof className === 'string' &&
                                       className.includes('katex-display') &&
                                       !className.includes('math-scroll-wrapper')) {
-                                      // Wrap the katex-display div in a scrollable container
                                       return (
                                         <div className="math-scroll-wrapper">
                                           <div className={className} {...props}>
@@ -3231,10 +3224,8 @@ Follow these strict rules:
                                         </div>
                                       )
                                     }
-                                    // For all other divs, render normally
                                     return <div {...props} className={className}>{children}</div>
                                   },
-                                  // Ensure pre/code blocks can scroll (they already have overflow-x: auto, but let's make sure)
                                   pre: ({ children, ...props }) => (
                                     <pre className="code-scroll-wrapper" {...props}>
                                       {children}
@@ -3245,7 +3236,9 @@ Follow these strict rules:
                                 {(() => {
                                   try {
                                     if (typeof message.content === 'string' && message.content) {
-                                      const processed = preprocessMathContent(message.content)
+                                      // Strip <tool> and <think> tags from advanced model responses
+                                      let processed = message.content.replace(/<tool>[\s\S]*?<\/tool>/gi, '').replace(/<think>[\s\S]*?<\/think>/gi, '')
+                                      processed = preprocessMathContent(processed)
 
                                       // Final safety check: ensure no non-breaking hyphens before passing to ReactMarkdown
                                       if (processed.includes('\u2011')) {
@@ -3814,29 +3807,22 @@ Follow these strict rules:
                   <span className="clear-button-text">{clearConfirming ? 'Confirm' : 'Clear'}</span>
                 </button>
               )}
-              <button
-                onClick={onToggleLayout}
-                className="layout-toggle-button"
-                title="Switch to floating layout"
-                aria-label="Switch to floating layout"
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="3" y="3" width="7" height="7" />
-                  <rect x="14" y="3" width="7" height="7" />
-                  <rect x="14" y="14" width="7" height="7" />
-                  <line x1="10" y1="3" x2="10" y2="10" />
-                  <line x1="3" y1="10" x2="10" y2="10" />
-                </svg>
-              </button>
+                {layout === 'split' && (
+                  <button
+                    onClick={onToggleKnowledgeNotes}
+                    className="layout-toggle-button collapse-button"
+                    title={showKnowledgeNotes ? 'Hide knowledge notes' : 'Show knowledge notes'}
+                    aria-label={showKnowledgeNotes ? 'Hide knowledge notes' : 'Show knowledge notes'}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                    </svg>
+                  </button>
+                )}
+                {/* Layout toggle moved to AnnotationToolbar; don't show it here */}
             </div>
           </>
         )}
@@ -3940,8 +3926,8 @@ Follow these strict rules:
           </div>
         </div>
 
-        {/* Disclaimer - positioned below input bar */}
-        {layout === 'split' && (
+        {/* Disclaimer - positioned below input bar. In split layout show only on the mode selection page (no messages). */}
+        {layout === 'split' && messages.length === 0 && !selectedText && (
           <div className={`footer-text-outer split-footer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
             <span className="footer-text">
               AI responses may contain errors. Please verify important information.

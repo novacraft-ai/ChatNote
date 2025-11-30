@@ -59,9 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         // Initialize analytics user if not already set
         if (!analytics.getUserId()) {
-          const analyticsUserId = analytics.generateUserId()
-          analytics.setUserId(analyticsUserId)
-          await analytics.upsertUser(analyticsUserId, data.user.email)
+          // No need to generate userId; handled by Google ID
         }
         
         shouldSetLoading = true
@@ -133,13 +131,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('auth_token', data.token)
       setUser(data.user)
       
-      // Initialize analytics user on login
-      let analyticsUserId = analytics.getUserId()
-      if (!analyticsUserId) {
-        analyticsUserId = analytics.generateUserId()
-        analytics.setUserId(analyticsUserId)
+      // Use Google ID as analytics user_id
+      if (data.user && data.user.id) {
+        analytics.setUserId(data.user.id)
+        await analytics.upsertUser(data.user.id, data.user.email)
+        await analytics.trackPageView()
       }
-      await analytics.upsertUser(analyticsUserId, data.user.email)
     } catch (error) {
       console.error('Login error:', error)
       console.error('Failed URL:', `${BACKEND_URL}/api/auth/google`)
@@ -177,6 +174,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.warn('Failed to clear PDF history cache:', error)
     }
+
+    // Reset analytics state (async to properly end note mode tracking)
+    await analytics.resetAnalytics()
 
     setUser(null)
   }

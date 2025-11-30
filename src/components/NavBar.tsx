@@ -43,7 +43,7 @@ function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMo
       if (titleTextRef.current) titleTextRef.current.classList.add('animation-complete')
       if (titleForRef.current) titleForRef.current.classList.add('animation-complete')
       if (logoRef.current) logoRef.current.classList.add('animation-complete')
-    }, 13500) // 4.5s * 3 loops
+    }, 13500)
 
     return () => clearTimeout(timer)
   }, [])
@@ -90,6 +90,37 @@ function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMo
           <div className="navbar-actions">
             <LoginButton />
             <div className="navbar-actions-desktop">
+              {hasPdf && (
+                <>
+                  <button
+                    className="history-toggle"
+                    onClick={() => window.dispatchEvent(new CustomEvent('pdf-new-session'))}
+                    title="New Session"
+                    aria-label="New Session"
+                    disabled={isSavingSession}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="12" y1="18" x2="12" y2="12" />
+                      <line x1="9" y1="15" x2="15" y2="15" />
+                    </svg>
+                  </button>
+                  <button
+                    className="history-toggle"
+                    onClick={() => window.dispatchEvent(new CustomEvent('pdf-download'))}
+                    title="Download"
+                    aria-label="Download PDF"
+                    disabled={isSavingSession}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                  </button>
+                </>
+              )}
               <button 
                 className="settings-toggle"
                 onClick={() => setShowSettings(!showSettings)}
@@ -202,6 +233,41 @@ function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMo
                   </>
                 )}
               </button>
+              )}
+              {hasPdf && (
+                <>
+                  <button
+                    className="mobile-menu-item"
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent('pdf-new-session'))
+                      setShowMobileMenu(false)
+                    }}
+                    disabled={isSavingSession}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="12" y1="18" x2="12" y2="12" />
+                      <line x1="9" y1="15" x2="15" y2="15" />
+                    </svg>
+                    <span>New Session</span>
+                  </button>
+                  <button
+                    className="mobile-menu-item"
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent('pdf-download'))
+                      setShowMobileMenu(false)
+                    }}
+                    disabled={isSavingSession}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>Download</span>
+                  </button>
+                </>
               )}
               <button 
                 className="mobile-menu-item"

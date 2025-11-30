@@ -73,6 +73,9 @@ function QuizConfiguration({ onStartQuiz, onBack }: QuizConfigurationProps) {
     if (type === 'mixed') {
       // Mixed is exclusive - deselect all others
       setSelectedTypes(['mixed'])
+      if (questionCount < 3) {
+        setQuestionCount(3) // Auto-adjust to minimum 3 if current count is less
+      }
     } else {
       // Deselect mixed if selecting individual types
       const newTypes = selectedTypes.includes(type)
@@ -83,13 +86,20 @@ function QuizConfiguration({ onStartQuiz, onBack }: QuizConfigurationProps) {
         setSelectedTypes(['multiple-choice']) // Always have at least one
       } else {
         setSelectedTypes(newTypes)
+        const minCount = newTypes.length; // Minimum count is the number of selected types
+        if (questionCount < minCount) {
+          setQuestionCount(minCount) // Auto-adjust to minimum count if current count is less
+        }
       }
     }
   }
 
   const handleCountChange = (value: number) => {
     const max = getMaxQuestions()
-    setQuestionCount(Math.min(Math.max(1, value), max))
+    const min = selectedTypes.includes('mixed')
+      ? 3
+      : Math.max(1, selectedTypes.length) // Minimum count is the number of selected types
+    setQuestionCount(Math.min(Math.max(min, value), max))
   }
 
   const handleStartQuiz = () => {

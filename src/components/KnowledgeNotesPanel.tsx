@@ -46,6 +46,8 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null)
   const [frontNoteId, setFrontNoteId] = useState<string | null>(null) // Track which note is brought to front
   const isCalculatingRef = useRef(false)
+  const prevDisplayModeRef = useRef<'following' | 'stack' | null>(null)
+  const prevNotesLengthRef = useRef<number>(0)
 
   // Handle Escape key to close confirmation dialog
   useEffect(() => {
@@ -79,24 +81,45 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
     })
   }, [])
 
-  // Track note mode viewing time
+  // Track exposure: start when panel mounts, track mode/notes changes
   useEffect(() => {
-    // Start tracking when component mounts or mode changes
-    analytics.startNoteModeTracking(displayMode)
-    
-    return () => {
-      // End tracking when component unmounts or mode changes
-      analytics.endNoteModeTracking()
-    }
-  }, [displayMode])
+    // Detect what changed
+    const modeChanged = prevDisplayModeRef.current !== displayMode && prevDisplayModeRef.current !== null
+    const notesChanged = prevNotesLengthRef.current !== notes.length && prevNotesLengthRef.current > 0
+    const isInitialMount = prevDisplayModeRef.current === null
 
-  // Track when panel closes
-  useEffect(() => {
-    if (!isVisible) {
-      // End tracking when panel becomes invisible
+    if (notesChanged) {
+      // Notes changed (new PDF loaded) - end old session, start new
+      analytics.endNoteModeTracking().then(() => {
+        analytics.startNoteModeTracking(displayMode)
+        prevNotesLengthRef.current = notes.length
+      })
+    } else if (modeChanged) {
+      // Mode changed - startNoteModeTracking will handle ending old mode
+      analytics.startNoteModeTracking(displayMode)
+      prevDisplayModeRef.current = displayMode
+    } else if (isInitialMount && notes.length > 0) {
+      // Initial mount with notes - start tracking
+      analytics.startNoteModeTracking(displayMode)
+      prevDisplayModeRef.current = displayMode
+      prevNotesLengthRef.current = notes.length
+    } else {
+      // Re-run without changes - ensure tracking is active
+      // This handles React Strict Mode double-mounting
+      analytics.startNoteModeTracking(displayMode)
+    }
+
+    const handleVisibilityOrPageHide = () => {
       analytics.endNoteModeTracking()
     }
-  }, [isVisible])
+    window.addEventListener('pagehide', handleVisibilityOrPageHide)
+    document.addEventListener('visibilitychange', handleVisibilityOrPageHide)
+
+    return () => {
+      window.removeEventListener('pagehide', handleVisibilityOrPageHide)
+      document.removeEventListener('visibilitychange', handleVisibilityOrPageHide)
+    }
+  }, [displayMode, notes.length])
 
   // Update notes list height to match PDF content scroll height
   // And sync scroll position so notes scroll with PDF using the same scrollbar
@@ -443,8 +466,10 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
           {/* Close button */}
           <button
             className="knowledge-notes-close"
-            onClick={(e) => {
+            onClick={async (e) => {
               e.stopPropagation()
+              // End tracking before closing panel (before component unmounts)
+              await analytics.endNoteModeTracking()
               onClose?.()
             }}
             aria-label="Close knowledge notes"

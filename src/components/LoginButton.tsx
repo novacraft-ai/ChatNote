@@ -70,6 +70,9 @@ export default function LoginButton() {
         message.includes('signal is aborted') ||
         message.includes('FedCM get() rejects') ||
         message.includes('GSI_LOGGER') ||
+        message.includes('The given origin is not allowed') ||
+        message.includes('ERR_BLOCKED_BY_CLIENT') ||
+        message.includes('Cross-Origin-Opener-Policy') ||
         message.includes('Only one navigator.credentials.get request may be outstanding')
       ) {
         return // Suppress these expected errors
@@ -81,6 +84,7 @@ export default function LoginButton() {
       const message = args.join(' ')
       if (
         message.includes('GSI_LOGGER') ||
+        message.includes('The given origin is not allowed') ||
         message.includes('Not signed in with the identity provider') ||
         message.includes('Only one navigator.credentials.get request may be outstanding')
       ) {
@@ -97,6 +101,7 @@ export default function LoginButton() {
           message.includes('Not signed in with the identity provider') ||
           message.includes('Only one navigator.credentials.get request may be outstanding') ||
           message.includes('AbortError') ||
+          message.includes('The given origin is not allowed') ||
           source?.includes('accounts.google.com')
         )
       ) {

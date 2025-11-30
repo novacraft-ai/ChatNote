@@ -1,0 +1,126 @@
+.resizable-divider {
+  position: relative;
+  width: 8px;
+  cursor: ew-resize;
+  flex-shrink: 0;
+  z-index: 10;
+  transition: all 0.2s ease;
+  order: 2; /* Between PDF (order 1) and chat (order 3) */
+}
+
+/* Base divider appearance */
+.resizable-divider::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.05) 0%,
+    rgba(0, 0, 0, 0.15) 10%,
+    rgba(0, 0, 0, 0.25) 30%,
+    rgba(0, 0, 0, 0.3) 50%,
+    rgba(0, 0, 0, 0.25) 70%,
+    rgba(0, 0, 0, 0.15) 90%,
+    rgba(0, 0, 0, 0.05) 100%
+  );
+  box-shadow: 
+    -2px 0 4px rgba(0, 0, 0, 0.1),
+    -1px 0 2px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+}
+
+[data-theme='dark'] .resizable-divider::before {
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.1) 10%,
+    rgba(255, 255, 255, 0.15) 30%,
+    rgba(255, 255, 255, 0.2) 50%,
+    rgba(255, 255, 255, 0.15) 70%,
+    rgba(255, 255, 255, 0.1) 90%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  box-shadow: 
+    -2px 0 4px rgba(0, 0, 0, 0.3),
+    -1px 0 2px rgba(0, 0, 0, 0.4);
+}
+
+/* Hover effect with model color */
+.resizable-divider.hovering::before,
+.resizable-divider.dragging::before {
+  width: 3px;
+  left: 2.5px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--model-color) 20%, transparent) 0%,
+    color-mix(in srgb, var(--model-color) 40%, transparent) 10%,
+    color-mix(in srgb, var(--model-color) 60%, transparent) 30%,
+    color-mix(in srgb, var(--model-color) 80%, transparent) 50%,
+    color-mix(in srgb, var(--model-color) 60%, transparent) 70%,
+    color-mix(in srgb, var(--model-color) 40%, transparent) 90%,
+    color-mix(in srgb, var(--model-color) 20%, transparent) 100%
+  );
+  box-shadow: 
+    0 0 8px color-mix(in srgb, var(--model-color) 30%, transparent),
+    -2px 0 6px color-mix(in srgb, var(--model-color) 20%, transparent),
+    2px 0 6px color-mix(in srgb, var(--model-color) 20%, transparent);
+}
+
+/* Dragging effect - more prominent glow */
+.resizable-divider.dragging::before {
+  width: 4px;
+  left: 2px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--model-color) 40%, transparent) 0%,
+    color-mix(in srgb, var(--model-color) 60%, transparent) 10%,
+    color-mix(in srgb, var(--model-color) 80%, transparent) 30%,
+    var(--model-color) 50%,
+    color-mix(in srgb, var(--model-color) 80%, transparent) 70%,
+    color-mix(in srgb, var(--model-color) 60%, transparent) 90%,
+    color-mix(in srgb, var(--model-color) 40%, transparent) 100%
+  );
+  box-shadow: 
+    0 0 12px color-mix(in srgb, var(--model-color) 50%, transparent),
+    -3px 0 8px color-mix(in srgb, var(--model-color) 30%, transparent),
+    3px 0 8px color-mix(in srgb, var(--model-color) 30%, transparent);
+}
+
+/* Handle with grip dots */
+.divider-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.resizable-divider.hovering .divider-handle,
+.resizable-divider.dragging .divider-handle {
+  opacity: 1;
+}
+
+.divider-grip {
+  width: 3px;
+  height: 3px;
+  background-color: var(--model-color);
+  border-radius: 50%;
+  box-shadow: 0 0 4px color-mix(in srgb, var(--model-color) 50%, transparent);
+}
+
+[data-theme='dark'] .divider-grip {
+  background-color: color-mix(in srgb, var(--model-color) 80%, white);
+}
+
+/* Ensure divider is visible during drag */
+.resizable-divider.dragging {
+  width: 12px;
+}

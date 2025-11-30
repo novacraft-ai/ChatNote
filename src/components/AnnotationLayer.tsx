@@ -188,7 +188,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         const currentY = e.clientY - rect.top
         const angle = Math.atan2(currentY - centerY, currentX - centerX) * (180 / Math.PI)
         const newRotation = (rotateStart.angle + angle) % 360
-        onAnnotationUpdate({ ...selectedAnnotation, rotation: newRotation })
+        // Only update if rotation changed meaningfully to avoid unnecessary re-renders
+        if (Math.abs(((selectedAnnotation.rotation || 0) - newRotation)) > 0.01) {
+          onAnnotationUpdate({ ...selectedAnnotation, rotation: newRotation })
+        }
       } else if (isResizing && resizeHandle && resizeStart) {
         const currentX = e.clientX - rect.left
         const currentY = e.clientY - rect.top
@@ -245,9 +248,24 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
           if (Math.abs(requiredRelativeHeight - constrained.height) > 0.001) {
             const finalHeight = Math.max(0.01, Math.min(1, requiredRelativeHeight))
             const finalConstrained = constrainToPage(newX, newY, constrained.width, finalHeight)
-            onAnnotationUpdate({ ...selectedAnnotation, ...finalConstrained })
+            // Only update if any property changed meaningfully
+            if (
+              Math.abs((selectedAnnotation.x || 0) - finalConstrained.x) > 0.0001 ||
+              Math.abs((selectedAnnotation.y || 0) - finalConstrained.y) > 0.0001 ||
+              Math.abs((selectedAnnotation.width || 0) - finalConstrained.width) > 0.0001 ||
+              Math.abs((selectedAnnotation.height || 0) - finalConstrained.height) > 0.0001
+            ) {
+              onAnnotationUpdate({ ...selectedAnnotation, ...finalConstrained })
+            }
           } else {
-            onAnnotationUpdate({ ...selectedAnnotation, ...constrained })
+            if (
+              Math.abs((selectedAnnotation.x || 0) - constrained.x) > 0.0001 ||
+              Math.abs((selectedAnnotation.y || 0) - constrained.y) > 0.0001 ||
+              Math.abs((selectedAnnotation.width || 0) - constrained.width) > 0.0001 ||
+              Math.abs((selectedAnnotation.height || 0) - constrained.height) > 0.0001
+            ) {
+              onAnnotationUpdate({ ...selectedAnnotation, ...constrained })
+            }
           }
         } else {
           onAnnotationUpdate({ ...selectedAnnotation, ...constrained })
@@ -256,7 +274,12 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         const newX = toRelativeX(e.clientX - rect.left - dragStart.x)
         const newY = toRelativeY(e.clientY - rect.top - dragStart.y)
         const constrained = constrainToPage(newX, newY, selectedAnnotation.width, selectedAnnotation.height)
-        onAnnotationUpdate({ ...selectedAnnotation, ...constrained })
+        if (
+          Math.abs((selectedAnnotation.x || 0) - constrained.x) > 0.0001 ||
+          Math.abs((selectedAnnotation.y || 0) - constrained.y) > 0.0001
+        ) {
+          onAnnotationUpdate({ ...selectedAnnotation, ...constrained })
+        }
       }
     }
 
@@ -377,7 +400,10 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
               if (relatedTarget && (
                 relatedTarget.closest('.textbox-controls') !== null ||
                 relatedTarget.closest('.textbox-font-size-input') !== null ||
-                relatedTarget.classList.contains('textbox-font-size-input')
+                relatedTarget.classList.contains('textbox-font-size-input') ||
+                relatedTarget.closest('.floating-textbox-toolbar') !== null ||
+                relatedTarget.closest('.color-swatch') !== null ||
+                relatedTarget.classList.contains('toolbar-icon')
               )) {
                 // Focus is moving to controls, don't exit editing mode
                 return
@@ -573,6 +599,23 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     pointerEvents: 'none', // Allow pointer events to pass through to PDF text layer
   }
 
+  // Find the selected text box annotation for floating toolbar
+  const selectedTextAnnotation = pageAnnotations.find((ann) => ann.id === selectedAnnotationId && ann.type === 'textbox') as TextBoxAnnotation | undefined
+
+  const [toolbarPosition, setToolbarPosition] = useState<{ left: number; top: number } | null>(null)
+
+  // Update toolbar position when selected annotation, editing state or layer size changes
+  useEffect(() => {
+    if (!selectedTextAnnotation || !layerRef.current) {
+      setToolbarPosition(null)
+      return
+    }
+    const left = toPixelX(selectedTextAnnotation.x)
+    const top = toPixelY(selectedTextAnnotation.y)
+    // Position toolbar above the text box, centered
+    setToolbarPosition({ left: left + toPixelWidth(selectedTextAnnotation.width) / 2, top: Math.max(0, top - 40) })
+  }, [selectedTextAnnotation, pageWidth, pageHeight, scale, editingText])
+
   return (
     <div
       ref={layerRef}
@@ -591,6 +634,48 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
         }
         return null
       })}
+      {selectedTextAnnotation && editingText === selectedTextAnnotation.id && toolbarPosition && (
+      <div
+        className="floating-textbox-toolbar"
+        style={{ left: `${toolbarPosition.left}px`, top: `${toolbarPosition.top}px`, position: 'absolute', zIndex: 9999 }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="font-size-group">
+          <button
+            className="toolbar-icon"
+            onClick={() => {
+              const currentSize = selectedTextAnnotation.fontSize || 16
+              onAnnotationUpdate({ ...selectedTextAnnotation, fontSize: Math.max(1, currentSize - 1) })
+            }}
+            title="Decrease font size"
+          >
+            −
+          </button>
+          <span className="font-size-display">{selectedTextAnnotation.fontSize || 16}</span>
+          <button
+            className="toolbar-icon"
+            onClick={() => {
+              const currentSize = selectedTextAnnotation.fontSize || 16
+              onAnnotationUpdate({ ...selectedTextAnnotation, fontSize: Math.min(200, currentSize + 1) })
+            }}
+            title="Increase font size"
+          >
+            +
+          </button>
+        </div>
+        <div className="color-swatch-group">
+          {[ '#000000', '#ff0000', '#0000ff', '#00ff00', '#ffeb3b' ].map((color) => (
+            <button
+              key={color}
+              className={`color-swatch ${selectedTextAnnotation.color === color ? 'active' : ''}`}
+              style={{ backgroundColor: color }}
+              onClick={() => onAnnotationUpdate({ ...selectedTextAnnotation, color })}
+              title={color}
+            />
+          ))}
+        </div>
+      </div>
+      )}
     </div>
   )
 }

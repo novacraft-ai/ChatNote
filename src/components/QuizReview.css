@@ -10,10 +10,35 @@
   padding: 2rem 2rem 3rem 2rem;
   background: var(--bg-primary, #fff);
   animation: fadeIn 0.4s ease;
+  scrollbar-width: thin; /* Corrected syntax */
+  scrollbar-color: rgba(102, 126, 234, 0.6) rgba(0, 0, 0, 0.04); /* Corrected syntax */
 }
 
 [data-theme='dark'] .quiz-review {
   background: #1a1a1a;
+}
+
+/* WebKit scrollbar styling (Chrome, Edge, Safari)
+   Thumb color follows theme */
+.quiz-review::-webkit-scrollbar {
+  width: 12px;
+}
+.quiz-review::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.04);
+  border-radius: 10px;
+}
+.quiz-review::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+[data-theme='dark'] .quiz-review::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.02);
+}
+[data-theme='dark'] .quiz-review::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #818cf8 0%, #667eea 100%);
 }
 
 /* Review Header */
@@ -72,7 +97,7 @@
 }
 
 .summary-text h2 {
-  font-size: 1.75rem;
+  font-size: 1.4rem; /* Corrected syntax */
   font-weight: 700;
   margin: 0 0 0.5rem 0;
   color: #000;
@@ -83,14 +108,14 @@
 }
 
 .score-details {
-  font-size: 1.05rem;
+  font-size: 0.95rem; /* Corrected syntax */
   color: #666;
   margin: 0 0 1rem 0;
 }
 
 [data-theme='dark'] .score-details {
   color: #9ca3af;
-}
+} /* Corrected unbalanced braces */
 
 .score-details strong {
   color: #667eea;
@@ -124,13 +149,14 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.875rem 1.5rem;
+  padding: 0.75rem 1.25rem; /* Adjusted padding */
   border-radius: 10px;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.9rem; /* Reduced font size for better fit */
   font-weight: 600;
   transition: all 0.3s ease;
   white-space: nowrap;
+  text-align: center; /* Ensures text alignment */
 }
 
 .action-btn svg {
@@ -256,11 +282,11 @@
 }
 
 .review-question-text {
-  font-size: 1.15rem;
+  margin: 0 0 1.25rem 0; /* Corrected syntax */
+  font-size: 1rem;
   font-weight: 600;
   color: #000;
   line-height: 1.5;
-  margin: 0 0 1.5rem 0;
 }
 
 [data-theme='dark'] .review-question-text {
@@ -377,15 +403,16 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.625rem 1rem;
+  padding: 0.5rem 0.75rem; /* Adjusted padding */
   background: #fff;
   border: 2px solid #e5e7eb;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 0.8rem; /* Reduced font size for smaller buttons */
   font-weight: 500;
   color: #333;
   transition: all 0.2s ease;
+  text-align: center; /* Ensures text alignment */
 }
 
 [data-theme='dark'] .mini-action-btn {
