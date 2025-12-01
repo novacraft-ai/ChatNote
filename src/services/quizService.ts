@@ -369,7 +369,7 @@ export async function canGenerateQuiz(pdfText: string, options: any): Promise<{ 
       return { canGenerate: false, error: errorData.error || 'Failed to check quiz generation eligibility' }
     }
 
-    const data = await response.json()
+    await response.json()
     return { canGenerate: true }
   } catch (error) {
     console.error('Error checking quiz generation eligibility:', error)
