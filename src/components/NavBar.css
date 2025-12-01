@@ -77,11 +77,10 @@
     height: 28px;
   }
   
-  /* Hide mode indicator on very narrow screens */
-  .mode-indicator {
-    font-size: 9px;
-    padding: 2px 6px;
-    height: 18px;
+  /* Hide mode indicator text row once we move it into the mobile menu */
+  .mode-indicator,
+  .mode-separator {
+    display: none;
   }
 }
 
@@ -690,6 +689,27 @@
   transition: color 0.2s;
 }
 
+.mobile-menu-mode {
+  gap: 8px;
+  align-items: center;
+}
+
+.mobile-mode-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.mobile-mode-label {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.mobile-mode-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .navbar-actions-desktop {
     display: none;
@@ -701,5 +721,12 @@
 
   .mobile-menu {
     display: block;
+  }
+}
+
+@media (max-width: 768px) {
+  .navbar .mode-indicator,
+  .navbar .mode-separator {
+    display: none !important;
   }
 }

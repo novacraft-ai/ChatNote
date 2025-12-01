@@ -6,6 +6,12 @@
   overflow: visible;
 }
 
+@media (max-width: 768px) {
+  .split-chat .split-footer {
+    bottom: 12px;
+  }
+}
+
 /* Quiz Loading Styles */
 .quiz-loading {
   display: flex;
@@ -348,6 +354,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 8px 12px;
   background: rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(20px) saturate(180%);
@@ -365,6 +372,85 @@
   padding: 8px 20px;
   z-index: 10004; /* Higher than upload button (1001) to ensure dropdown appears above it */
   position: relative;
+}
+
+@media (max-width: 768px) {
+  .floating-chat .model-selector-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    border-radius: 16px;
+  }
+
+  .floating-chat .model-selector-wrapper {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .floating-chat .model-mode-toggle-container {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .floating-chat .header-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    align-self: stretch;
+  }
+
+  .floating-chat .header-actions button,
+  .floating-chat .header-actions .notes-toggle-button,
+  .floating-chat .header-actions .collapse-button {
+    width: 100%;
+    justify-content: center;
+    padding: 6px;
+    min-height: 40px;
+    height: 40px;
+  }
+
+  .floating-chat .header-actions svg {
+    margin: 0 auto;
+  }
+
+  .floating-chat .image-upload-button {
+    width: 100%;
+    min-height: 40px;
+    height: 40px;
+    justify-content: center;
+  }
+
+  .floating-chat .chatgpt-inner {
+    width: 100%;
+  }
+
+  .floating-chat .chatgpt-messages,
+  .floating-chat .chatgpt-input-container,
+  .floating-chat .pdf-context-toggle-container,
+  .floating-chat .model-selector-bar,
+  .floating-chat .model-selector-wrapper {
+    width: 100%;
+    padding-left: 20px;
+    padding-right: 20px;
+    box-sizing: border-box;
+  }
+
+  .floating-chat .clear-button {
+    padding: 6px;
+    gap: 0;
+  }
+
+  .floating-chat .clear-button:hover {
+    padding: 6px;
+  }
+
+  .floating-chat .clear-button .clear-button-text,
+  .floating-chat .clear-button:hover .clear-button-text {
+    display: none;
+  }
 }
 
 .theme-light .model-selector-bar {
@@ -3031,7 +3117,7 @@
   /* Small pill centered above the input bar in split layout */
   position: absolute;
   /* place above input area to avoid covering controls; adjust if needed */
-  bottom: 72px;
+  bottom: 32px;
   left: 50%;
   transform: translateX(-50%);
   flex-shrink: 0;

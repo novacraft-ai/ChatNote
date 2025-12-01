@@ -251,6 +251,27 @@ function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMo
           </div>
           {showMobileMenu && (
             <div className="mobile-menu">
+              {modeText && hasPdf && (
+                <button
+                  className="mobile-menu-item mobile-menu-mode"
+                  onClick={() => {
+                    onResetMode?.()
+                    setShowMobileMenu(false)
+                  }}
+                  title="Change study mode"
+                  aria-label="Change study mode"
+                  type="button"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 12h18" />
+                    <polyline points="15 6 21 12 15 18" />
+                  </svg>
+                  <div className="mobile-mode-text">
+                    <span className="mobile-mode-label">Mode</span>
+                    <span className="mobile-mode-value">{modeText}</span>
+                  </div>
+                </button>
+              )}
               <button 
                 className="mobile-menu-item"
                 onClick={() => {

@@ -102,8 +102,8 @@
   bottom: 90px; /* Keep at bottom, avoid PDF navigation controls */
   left: 50%; /* Start from center of viewport */
   transform: translateX(-50%); /* Center horizontally */
-  max-width: 600px; /* Reduced from 1200px to make it narrower */
-  width: 600px; /* Fixed width */
+  max-width: 720px;
+  width: 720px;
   margin: 0; /* Remove auto margin */
   z-index: 10010; /* Higher than upload button (1001) to ensure dropdown appears above it */
   pointer-events: none; /* Allow clicks to pass through to PDF when chat is closed */
@@ -174,8 +174,8 @@
     bottom: 70px; /* Slightly less padding on mobile */
     left: 50%; /* Center horizontally on mobile */
     right: auto;
-    width: auto;
-    max-width: calc(100vw - 20px); /* Full width minus padding */
+    width: calc(100vw - 12px);
+    max-width: calc(100vw - 12px); /* Full width minus tighter padding */
     transform: translateX(-50%); /* Center horizontally */
   }
   
