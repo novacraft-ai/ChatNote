@@ -22,6 +22,7 @@ interface PDFHistoryPanelProps {
   hasUnsavedChanges?: boolean // Whether current PDF has unsaved changes
   onSaveBeforeFetch?: () => Promise<void> // Optional callback to save before fetching
   isDriveAuthorized?: boolean // Whether Google Drive is authorized
+  isGoogleDriveEligible?: boolean // Whether user is eligible for Google Drive features
 }
 
 const CACHE_KEY = 'chatnote_pdf_history_cache'
@@ -268,7 +269,7 @@ interface CachedHistory {
   timestamp: number
 }
 
-export default function PDFHistoryPanel({ isOpen, onClose, onSelectPdf, hasUnsavedChanges = false, onSaveBeforeFetch, isDriveAuthorized = false }: PDFHistoryPanelProps) {
+export default function PDFHistoryPanel({ isOpen, onClose, onSelectPdf, hasUnsavedChanges = false, onSaveBeforeFetch, isDriveAuthorized = false, isGoogleDriveEligible = false }: PDFHistoryPanelProps) {
   const { isAuthenticated } = useAuth()
   const [pdfs, setPdfs] = useState<PDFHistoryEntry[]>([])
   const [loading, setLoading] = useState(false)
@@ -552,8 +553,8 @@ export default function PDFHistoryPanel({ isOpen, onClose, onSelectPdf, hasUnsav
   }, [])
 
   const loadHistory = async (isBackgroundRefresh = false, pendingVersion?: number, pendingSave?: boolean) => {
-    // Don't fetch if Drive is not authorized
-    if (!isDriveAuthorized) {
+    // Don't fetch if Drive is not authorized or user is not eligible
+    if (!isGoogleDriveEligible || !isDriveAuthorized) {
       if (isOpenRef.current && !isBackgroundRefresh) {
         setError('Google Drive not authorized. Please authorize Drive access to view PDF history.')
         setLoading(false)
@@ -594,10 +595,16 @@ export default function PDFHistoryPanel({ isOpen, onClose, onSelectPdf, hasUnsav
 
       if (!response.ok) {
         if (isOpenRef.current) {
+          const errorText = await response.text()
           if (response.status === 403) {
-            setError('Drive not authorized. Please authorize Drive access first.')
-            // Clear cache on auth error
-            localStorage.removeItem(CACHE_KEY)
+            // Check if it's an "expired" error
+            if (errorText.includes('expired') || errorText.includes('try again')) {
+              setError('Drive authorization may have expired. Please try again or re-authorize.')
+            } else {
+              setError('Drive not authorized. Please authorize Drive access first.')
+              // Clear cache on auth error
+              localStorage.removeItem(CACHE_KEY)
+            }
           } else {
             setError('Failed to load PDF history')
           }
@@ -707,188 +714,210 @@ export default function PDFHistoryPanel({ isOpen, onClose, onSelectPdf, hasUnsav
             </svg>
           </button>
         </div>
-
         <div className="pdf-history-content">
-          {!error && (
-            <div className="pdf-history-search">
-              <input
-                type="search"
-                placeholder="Search by title or file name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                aria-label="Search PDF history"
-                disabled={loading && pdfs.length === 0}
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  className="pdf-history-search-clear"
-                  onClick={() => setSearchQuery('')}
-                  aria-label="Clear search"
-                >
-                  ×
-                </button>
+          {!isGoogleDriveEligible && (
+            <div className="pdf-history-unavailable">
+              <h3>PDF History Not Available</h3>
+              <p>You don't have access to the PDF history feature. Please contact support if you believe this is an error.</p>
+            </div>
+          )}
+          
+          {isGoogleDriveEligible && (
+            <>
+              {!error && (
+                <div className="pdf-history-search">
+                  <input
+                    type="search"
+                    placeholder="Search by title or file name..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    aria-label="Search PDF history"
+                    disabled={loading && pdfs.length === 0}
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      className="pdf-history-search-clear"
+                      onClick={() => setSearchQuery('')}
+                      aria-label="Clear search"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
               )}
-            </div>
-          )}
 
-          {loading && (
-            <div className="pdf-history-loading">
-              <span>Loading...</span>
-            </div>
-          )}
-
-          {error && (
-            <div className="pdf-history-error">
-              <p>{error}</p>
-              {error.includes('not authorized') && (
-                <button
-                  className="pdf-history-authorize-btn"
-                  onClick={async () => {
-                    try {
-                      const token = localStorage.getItem('auth_token')
-                      if (!token) {
-                        alert('Please log in first')
-                        return
-                      }
-
-                      const response = await fetch(`${BACKEND_URL}/api/drive/auth`, {
-                        headers: {
-                          'Authorization': `Bearer ${token}`
-                        }
-                      })
-
-                      if (!response.ok) {
-                        throw new Error('Failed to initiate Drive authorization')
-                      }
-
-                      const data = await response.json()
-
-                      if (data.authorized) {
-                        // Already authorized, reload history
-                        loadHistory()
-                      } else if (data.authUrl) {
-                        // Redirect to OAuth URL
-                        window.location.href = data.authUrl
-                      }
-                    } catch (error) {
-                      console.error('Error authorizing Drive:', error)
-                      setError('Failed to authorize Drive access. Please try again.')
-                    }
-                  }}
-                >
-                  Authorize Drive Access
-                </button>
+              {loading && (
+                <div className="pdf-history-loading">
+                  <div className="loading-spinner" />
+                  <p>Loading PDF history...</p>
+                </div>
               )}
-            </div>
-          )}
 
-          {!loading && !error && pdfs.length === 0 && !hasSearchQuery && (
-            <div className="pdf-history-empty">
-              <p>No PDFs yet</p>
-              <p className="pdf-history-empty-hint">Upload a PDF to get started</p>
-            </div>
-          )}
+              {error && (
+                <div className="pdf-history-error">
+                  <p>{error}</p>
+                  {(!isDriveAuthorized || error.includes('expired') || error.includes('try again')) && (
+                    <button
+                      className="authorize-drive-button"
+                      onClick={async () => {
+                        try {
+                          const token = localStorage.getItem('auth_token')
+                          if (!token) return
 
-          {!loading && !error && hasSearchQuery && filteredPdfs.length === 0 && (
-            <div className="pdf-history-empty">
-              <p>No PDFs match your search</p>
-              <button
-                type="button"
-                className="pdf-history-search-reset"
-                onClick={() => setSearchQuery('')}
-              >
-                Clear search
-              </button>
-            </div>
-          )}
-
-          {!loading && !error && filteredPdfs.length > 0 && (
-            <div className="pdf-history-list">
-              {filteredPdfs.map((pdf) => {
-                const generatedTitle = generatedNameCache[pdf.pdfId]?.name || pdf.displayName
-                const isGeneratingTitle = !!nameGenerationStatus[pdf.pdfId]
-                const isDeleting = !!deletingIds[pdf.pdfId]
-                const isConfirmingDelete = !!deleteConfirmIds[pdf.pdfId]
-                return (
-                  <div
-                    key={pdf.pdfId}
-                    className="pdf-history-item"
-                    onClick={() => {
-                      if (isDeleting) return
-                      onSelectPdf(pdf.pdfId)
-                      onClose()
-                      // Note: History will be refreshed automatically when panel reopens
-                      // because cache is invalidated after save operations
-                    }}
-                  >
-                    <div className="pdf-history-item-icon">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <polyline points="14 2 14 8 20 8" />
-                        <line x1="16" y1="13" x2="8" y2="13" />
-                        <line x1="16" y1="17" x2="8" y2="17" />
-                      </svg>
-                    </div>
-                    <div className="pdf-history-item-content">
-                      <div className="pdf-history-item-header">
-                        <div className="pdf-history-item-name">
-                          <span>{generatedTitle}</span>
-                          {isGeneratingTitle && <span className="pdf-history-name-spinner" aria-label="Generating title" />}
-                        </div>
-                        <button
-                          type="button"
-                          className={`pdf-history-delete ${isConfirmingDelete ? 'confirm' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (isDeleting) return
-                            if (!isConfirmingDelete) {
-                              requestDeleteConfirmation(pdf.pdfId)
-                              return
+                          const response = await fetch(`${BACKEND_URL}/api/drive/auth`, {
+                            headers: {
+                              'Authorization': `Bearer ${token}`
                             }
-                            handleDeletePdf(pdf.pdfId)
-                          }}
-                          aria-label="Delete PDF"
-                          disabled={isDeleting}
-                        >
-                          {isDeleting ? (
-                            <span className="pdf-history-delete-spinner" aria-hidden="true" />
-                          ) : (
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                              <path d="M10 11v6" />
-                              <path d="M14 11v6" />
-                              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                            </svg>
-                          )}
-                        </button>
-                      </div>
-                      <div className="pdf-history-item-original" title={pdf.originalFileName}>
-                        <span className="pdf-history-original-name">{pdf.originalFileName}</span>
-                        <span className="pdf-history-divider">•</span>
-                        <span>{formatDate(pdf.lastModifiedAt)}</span>
-                      </div>
-                      <div className="pdf-history-item-meta">
-                        {pdf.pageCount > 0 && (
-                          <span>{pdf.pageCount} page{pdf.pageCount !== 1 ? 's' : ''}</span>
-                        )}
-                      </div>
-                      {(pdf.hasAnnotations || pdf.hasNotes) && (
-                        <div className="pdf-history-item-badges">
-                          {pdf.hasAnnotations && (
-                            <span className="pdf-history-badge">Annotations</span>
-                          )}
-                          {pdf.hasNotes && (
-                            <span className="pdf-history-badge">Notes</span>
+                          })
+
+                          if (!response.ok) {
+                            throw new Error('Failed to initiate Drive authorization')
+                          }
+
+                          const data = await response.json()
+
+                          if (data.authorized) {
+                            // Already authorized, reload history
+                            loadHistory()
+                          } else if (data.authUrl) {
+                            // Redirect to OAuth URL
+                            window.location.href = data.authUrl
+                          }
+                        } catch (error) {
+                          console.error('Error authorizing Drive:', error)
+                          setError('Failed to authorize Drive access. Please try again.')
+                        }
+                      }}
+                    >
+                      Authorize Drive Access
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {!loading && !error && pdfs.length === 0 && !hasSearchQuery && (
+                <div className="pdf-history-empty">
+                  <p>No PDFs yet</p>
+                  <p className="pdf-history-empty-hint">Upload a PDF to get started</p>
+                </div>
+              )}
+
+              {!loading && !error && hasSearchQuery && filteredPdfs.length === 0 && (
+                <div className="pdf-history-empty">
+                  <p>No PDFs match your search</p>
+                  <button
+                    type="button"
+                    className="pdf-history-search-reset"
+                    onClick={() => setSearchQuery('')}
+                  >
+                    Clear search
+                  </button>
+                </div>
+              )}
+
+              {!loading && !error && filteredPdfs.length > 0 && (
+                <div className="pdf-history-list">
+                  {filteredPdfs.map((pdf) => {
+                    const generatedTitle = generatedNameCache[pdf.pdfId]?.name || pdf.displayName
+                    const isGeneratingTitle = !!nameGenerationStatus[pdf.pdfId]
+                    const isDeleting = !!deletingIds[pdf.pdfId]
+                    const isConfirmingDelete = !!deleteConfirmIds[pdf.pdfId]
+                    return (
+                      <div
+                        key={pdf.pdfId}
+                        className="pdf-history-item"
+                        onClick={() => {
+                          if (isDeleting) return
+                          onSelectPdf(pdf.pdfId)
+                          onClose()
+                          // Note: History will be refreshed automatically when panel reopens
+                          // because cache is invalidated after save operations
+                        }}
+                      >
+                        <div className="pdf-history-item-icon">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <line x1="16" y1="13" x2="8" y2="13" />
+                            <line x1="16" y1="17" x2="8" y2="17" />
+                          </svg>
+                        </div>
+                        <div className="pdf-history-item-content">
+                          <div className="pdf-history-item-title">
+                            {isGeneratingTitle ? (
+                              <div className="pdf-history-title-placeholder">
+                                <div className="loading-dots">
+                                  <div></div>
+                                  <div></div>
+                                  <div></div>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="pdf-history-display-name" title={generatedTitle}>
+                                {generatedTitle}
+                              </span>
+                            )}
+                            {isConfirmingDelete ? (
+                              <button
+                                className="pdf-history-delete-confirm"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeletePdf(pdf.pdfId)
+                                }}
+                              >
+                                Confirm Delete
+                              </button>
+                            ) : (
+                              <button
+                                className="pdf-history-delete"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  requestDeleteConfirmation(pdf.pdfId)
+                                }}
+                                disabled={isDeleting}
+                                title={isDeleting ? 'Deleting...' : 'Delete PDF'}
+                              >
+                                {isDeleting ? (
+                                  <div className="delete-spinner" />
+                                ) : (
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polyline points="3 6 5 6 21 6" />
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                    <line x1="10" y1="11" x2="10" y2="17" />
+                                    <line x1="14" y1="11" x2="14" y2="17" />
+                                  </svg>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                          <div className="pdf-history-item-original" title={pdf.originalFileName}>
+                            <span className="pdf-history-original-name">{pdf.originalFileName}</span>
+                            <span className="pdf-history-divider">•</span>
+                            <span>{formatDate(pdf.lastModifiedAt)}</span>
+                          </div>
+                          <div className="pdf-history-item-meta">
+                            {pdf.pageCount > 0 && (
+                              <span>{pdf.pageCount} page{pdf.pageCount !== 1 ? 's' : ''}</span>
+                            )}
+                          </div>
+                          {(pdf.hasAnnotations || pdf.hasNotes) && (
+                            <div className="pdf-history-item-badges">
+                              {pdf.hasAnnotations && (
+                                <span className="pdf-history-badge">Annotations</span>
+                              )}
+                              {pdf.hasNotes && (
+                                <span className="pdf-history-badge">Notes</span>
+                              )}
+                            </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

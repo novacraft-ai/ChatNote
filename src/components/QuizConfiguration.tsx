@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import './QuizConfiguration.css'
 import { QuizQuestionType } from '../types/interactionModes'
+import { ApiKeyStatus } from '../services/authService'
 
 export type QuestionTypeOption = QuizQuestionType | 'mixed'
 
 interface QuizConfigurationProps {
   onStartQuiz: (count: number, types: QuizQuestionType[]) => void
   onBack: () => void
+  apiKeyStatus?: ApiKeyStatus
 }
 
 const QUESTION_LIMITS: Record<QuestionTypeOption, number> = {
@@ -17,9 +19,15 @@ const QUESTION_LIMITS: Record<QuestionTypeOption, number> = {
   'mixed': 20
 }
 
-function QuizConfiguration({ onStartQuiz, onBack }: QuizConfigurationProps) {
+function QuizConfiguration({ onStartQuiz, onBack, apiKeyStatus }: QuizConfigurationProps) {
   const [selectedTypes, setSelectedTypes] = useState<QuestionTypeOption[]>(['multiple-choice'])
   const [questionCount, setQuestionCount] = useState(10)
+
+  // Check if user has reached quiz generation limit
+  const isQuizLimitReached = apiKeyStatus?.freeTrial && 
+                            !apiKeyStatus.hasApiKey && 
+                            !apiKeyStatus.isAdmin &&
+                            (apiKeyStatus.freeTrial.quizGenerated || 0) >= (apiKeyStatus.freeTrial.quizLimit || 1)
 
   const getTypeIcon = (type: QuestionTypeOption) => {
     switch (type) {
@@ -114,7 +122,7 @@ function QuizConfiguration({ onStartQuiz, onBack }: QuizConfigurationProps) {
   const maxQuestions = getMaxQuestions()
 
   return (
-    <div className="quiz-configuration">
+    <div className={`quiz-configuration ${isQuizLimitReached ? 'limit-reached' : ''}`}>
       <button className="quiz-config-back" onClick={onBack} title="Back to mode selection">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="15 18 9 12 15 6" />
@@ -125,6 +133,11 @@ function QuizConfiguration({ onStartQuiz, onBack }: QuizConfigurationProps) {
       <div className="quiz-config-header">
         <h2>Configure Your Quiz</h2>
         <p>Customize your learning experience</p>
+        {isQuizLimitReached && (
+          <div className="quiz-limit-warning">
+            ⚠️ You've reached your free trial quiz limit. Please add your own API key to generate more quizzes.
+          </div>
+        )}
       </div>
 
       <div className="quiz-config-content">
@@ -138,6 +151,7 @@ function QuizConfiguration({ onStartQuiz, onBack }: QuizConfigurationProps) {
                 key={option.value}
                 className={`question-type-card ${selectedTypes.includes(option.value) ? 'selected' : ''}`}
                 onClick={() => handleTypeToggle(option.value)}
+                disabled={isQuizLimitReached}
               >
                 <div className="type-icon">{getTypeIcon(option.value)}</div>
                 <div className="type-label">{option.label}</div>
@@ -160,7 +174,7 @@ function QuizConfiguration({ onStartQuiz, onBack }: QuizConfigurationProps) {
               <button 
                 className="count-btn"
                 onClick={() => handleCountChange(questionCount - 1)}
-                disabled={questionCount <= 1}
+                disabled={questionCount <= 1 || isQuizLimitReached}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="5" y1="12" x2="19" y2="12" />
@@ -174,12 +188,13 @@ function QuizConfiguration({ onStartQuiz, onBack }: QuizConfigurationProps) {
                 min={1}
                 max={maxQuestions}
                 className="count-input"
+                disabled={isQuizLimitReached}
               />
               
               <button 
                 className="count-btn"
                 onClick={() => handleCountChange(questionCount + 1)}
-                disabled={questionCount >= maxQuestions}
+                disabled={questionCount >= maxQuestions || isQuizLimitReached}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <line x1="12" y1="5" x2="12" y2="19" />
@@ -195,6 +210,7 @@ function QuizConfiguration({ onStartQuiz, onBack }: QuizConfigurationProps) {
               min={1}
               max={maxQuestions}
               className="count-slider"
+              disabled={isQuizLimitReached}
             />
           </div>
         </div>
@@ -208,11 +224,15 @@ function QuizConfiguration({ onStartQuiz, onBack }: QuizConfigurationProps) {
             </div>
           </div>
           
-          <button className="start-quiz-btn" onClick={handleStartQuiz}>
+          <button 
+            className="start-quiz-btn" 
+            onClick={handleStartQuiz}
+            disabled={isQuizLimitReached}
+          >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polygon points="5 3 19 12 5 21 5 3" />
             </svg>
-            Generate Quiz
+            {isQuizLimitReached ? 'Quiz Limit Reached' : 'Generate Quiz'}
           </button>
         </div>
       </div>

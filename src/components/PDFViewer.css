@@ -34,49 +34,52 @@
 
 
 .start-page-content {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 420px; /* provide enough room so top area stays visually centered */
+}
+
+.start-top {
+  position: absolute;
+  left: 50%;
+  top: 10%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  width: 100%;
-  margin-top: 40px;
+  gap: 12px;
+  z-index: 1;
 }
 
 
 .start-logo {
+  /* Flush logo without a surrounding circle */
   width: 96px;
   height: 96px;
-  margin-bottom: 32px;
-  border-radius: 50%;
-  padding: 16px;
-    background: radial-gradient(circle at 50% 40%, rgba(57,105,168,0.12) 0%, rgba(57,105,168,0.08) 40%, rgba(245,245,245,0.02) 100%);
-    box-shadow: 0 8px 28px rgba(10,20,40,0.28), inset 0 1px 0 rgba(255,255,255,0.6);
-    display: inline-block;
+  margin: 0;
+  border-radius: 0; /* remove circular background */
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-  .start-logo {
-    /* Remove circular background — show SVG directly and enlarge */
-    width: 160px;
-    height: 160px;
-    border-radius: 0;
-    padding: 0;
-    background: transparent;
-    box-shadow: none;
-    display: block;
-  }
 
-  /* Make the inner SVG or img larger and centered */
-  .start-logo img, .start-logo svg {
-    width: 140px;
-    height: 140px;
-    display: block;
-    margin: 0 auto;
-  }
+/* Make the inner SVG or img slightly smaller than container */
+.start-logo img, .start-logo svg {
+  width: 84px;
+  height: 84px;
+  display: block;
+}
 
 .upload-container {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 32px;
+  margin-bottom: 8px;
+  pointer-events: auto; /* make button clickable */
 }
 
 .modern-upload {
@@ -136,11 +139,14 @@
 
 .recent-pdf-suggestions {
   width: 100%;
-  max-width: 400px;
-  margin-top: 16px;
+  max-width: 520px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: absolute;
+  left: 50%;
+  top: calc(35% + 120px);
+  transform: translateX(-50%);
 }
 .suggestions-title {
   font-size: 16px;
@@ -155,23 +161,75 @@
   gap: 8px; /* tightened spacing between suggestion cards */
   width: 100%;
 }
+/* Entrance animation for the whole list and staggered items */
+.suggestions-list {
+  /* prepare items for animated entrance */
+  overflow: visible;
+}
+
+/* Items start slightly down and transparent so they can animate in */
+.suggestions-list .suggestion-card {
+  opacity: 0;
+  transform: translateY(8px) scale(0.996);
+  will-change: transform, opacity;
+}
+
+/* When the list gets the `show` class, animate container and items */
+.suggestions-list.show {
+  animation: suggestionsFadeIn 220ms cubic-bezier(0.2,0.9,0.3,1) both;
+}
+
+.suggestions-list.show .suggestion-card {
+  animation: suggestionItemIn 360ms cubic-bezier(0.2,0.9,0.3,1) both;
+}
+
+/* Stagger first several items for a pleasing cascade */
+.suggestions-list.show .suggestion-card:nth-child(1) { animation-delay: 0ms; }
+.suggestions-list.show .suggestion-card:nth-child(2) { animation-delay: 36ms; }
+.suggestions-list.show .suggestion-card:nth-child(3) { animation-delay: 72ms; }
+.suggestions-list.show .suggestion-card:nth-child(4) { animation-delay: 108ms; }
+.suggestions-list.show .suggestion-card:nth-child(5) { animation-delay: 144ms; }
+.suggestions-list.show .suggestion-card:nth-child(6) { animation-delay: 180ms; }
+
+@keyframes suggestionsFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes suggestionItemIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.996); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* Respect user's reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .suggestions-list.show,
+  .suggestions-list.show .suggestion-card {
+    animation: none !important;
+  }
+  .suggestions-list .suggestion-card {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
 /* Suggestion card: minimal by default, highlight on hover/focus */
 .suggestion-card {
   display: flex;
   align-items: center;
-  gap: 8px; /* slightly smaller gap between icon and text */
-  background: transparent; /* no background by default */
-  border: none; /* no border by default */
+  justify-content: center; /* center icon + text horizontally */
+  gap: 10px; /* slightly larger gap for breathing room */
+  background: transparent;
+  border: none;
   border-radius: 10px;
-  padding: 8px 12px; /* reduced padding to make cards more compact */
+  padding: 10px 16px;
   font-size: 14px;
   font-weight: 600;
   color: var(--suggestion-text, #10203a);
-  box-shadow: none; /* no shadow by default */
+  box-shadow: none;
   cursor: pointer;
   transition: background-color 0.16s ease, box-shadow 0.16s ease, transform 0.10s ease;
-  width: 100%;
-  text-align: left;
+  width: auto; /* don't stretch full width so content can be centered */
+  min-width: 280px;
+  text-align: center;
 }
 
 /* Hover and focus states: show highlighted background and subtle border/shadow */
@@ -210,10 +268,28 @@
     gap: 8px; /* match tightened spacing */
     width: 100%;
   }
-  /* Ensure theme variables for hover are present */
-  .suggestion-card {
-    /* keep minimal defaults — theme variables define colors */
+
+/* Responsive: on small screens, revert to normal flow so items stack naturally */
+@media (max-width: 800px) {
+  .start-top {
+    position: static;
+    transform: none;
+    margin-top: 24px;
+    pointer-events: auto;
   }
+  .recent-pdf-suggestions {
+    position: static;
+    transform: none;
+    margin: 18px auto;
+    max-width: 420px;
+    width: calc(100% - 32px);
+    left: auto;
+    top: auto;
+    text-align: center;
+  }
+  .start-page-content { min-height: auto; }
+}
+  /* Ensure theme variables for hover are present */
   .suggestion-card:hover { transform: translateY(-2px); }
   .suggestion-icon { display: flex; align-items: center; justify-content: center; color: var(--suggestion-accent, #27477a); }
   .suggestion-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -232,10 +308,17 @@
   color: #3969A8;
 }
 .suggestion-name {
-  flex: 1;
+  flex: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: center; /* center text inside card */
+}
+
+@media (max-width: 800px) {
+  .suggestion-card { width: 100%; min-width: auto; }
+  .start-logo { width: 96px; height: 96px; padding: 8px; }
+  .start-logo img, .start-logo svg { width: 72px; height: 72px; }
 }
 
 /* Make icon and text slightly transparent by default, stronger on hover/focus */
@@ -442,12 +525,19 @@
   width: 100%; /* allow wrapper to take full container width */
 }
 
-/* Ensure the rendered page canvas can scale down/up to fit the wrapper */
-.react-pdf__Page, .react-pdf__Page__canvas, .react-pdf__Page canvas {
-  width: 100% !important;
-  max-width: 100% !important;
-  height: auto !important;
+/* Ensure the rendered page canvas maintains quality and centers properly */
+.react-pdf__Page {
+  max-width: 100%;
+  height: auto;
   display: block;
+  margin: 0 auto;
+}
+
+.react-pdf__Page canvas {
+  display: block;
+  margin: 0 auto;
+  /* Let canvas render at native resolution for crisp display */
+  /* The devicePixelRatio prop handles high-DPI displays */
 }
 
 .pdf-page-wrapper:last-child {

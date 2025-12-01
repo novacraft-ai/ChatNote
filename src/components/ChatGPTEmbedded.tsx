@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
-import { sendChatMessage, isChatConfigured, type ChatMessage } from '../services/authenticatedChatService'
+import { sendChatMessage, type ChatMessage } from '../services/authenticatedChatService'
+import { updateFreeTrialCount } from '../services/authService'
 import { AUTO_MODELS, REASONING_MODELS, ADVANCED_MODELS, CLASSIFICATION_MODELS, BACKEND_URL } from '../config'
 import ModelModeToggle, { type ModelMode } from './ModelModeToggle'
 import ReactMarkdown from 'react-markdown'
@@ -17,7 +18,7 @@ import QuizInterface from './QuizInterface'
 import QuizConfiguration from './QuizConfiguration'
 import type { InteractionMode, QuizSession, QuizQuestion } from '../types/interactionModes'
 import type { QuizQuestionType } from '../types/interactionModes'
-import { generateQuiz, evaluateAnswer } from '../services/quizService'
+import { generateQuiz, evaluateAnswer, canGenerateQuiz } from '../services/quizService'
 import { analytics } from '../services/analyticsService'
 
 /**
@@ -209,7 +210,18 @@ function searchPDFByKeywords(pdfText: string, keywords: string[], maxChars: numb
     const beginning = pdfText.substring(0, beginningSize)
     const end = pdfText.substring(Math.max(0, pdfText.length - endSize))
 
-    result = `[Document Introduction]\n${beginning}\n\n---\n\n[Relevant Sections]\n${result}\n\n---\n\n[Document Conclusion]\n${end}`
+    result = `[Document Introduction]
+${beginning}
+
+---
+
+[Relevant Sections]
+${result}
+
+---
+
+[Document Conclusion]
+${end}`
   } else if (!result) {
     // Fallback: if no matches, return beginning + end
     return truncateText(pdfText, Math.floor(maxChars / 4))
@@ -986,7 +998,10 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [apiKeyMissing, setApiKeyMissing] = useState(true)
+  
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false)
+  const [isAdminFromStatus, setIsAdminFromStatus] = useState<boolean>(false)
+  const [freeTrial, setFreeTrial] = useState<{ enabled: boolean; used: number; limit: number; remaining: number } | null>(null)
   const [isCheckingApiKey, setIsCheckingApiKey] = useState(true)
   const [isCollapsed, setIsCollapsed] = useState(true)
   const [savedScrollPosition, setSavedScrollPosition] = useState<number | null>(null)
@@ -1166,8 +1181,20 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
     if (isAuthenticated) {
       setIsCheckingApiKey(true)
       try {
-        const configured = await isChatConfigured()
-        setApiKeyMissing(!configured)
+        // Fetch detailed API key / free-trial status from backend
+        const token = localStorage.getItem('auth_token') || ''
+        const resp = await fetch(`${BACKEND_URL}/api/user/api-key/status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (resp.ok) {
+          const data = await resp.json()
+          setHasApiKey(!!data.hasApiKey)
+          setIsAdminFromStatus(!!data.isAdmin)
+          setFreeTrial(data.freeTrial || null)
+          // For backward compatibility: apiKeyMissing indicates whether user currently lacks any way to chat
+        } else {
+          console.warn('Failed to fetch API key status:', resp.status)
+        }
       } catch (error) {
         // If rate limited or network error, don't change the state
         // This prevents false warnings when backend is temporarily unavailable
@@ -1176,23 +1203,22 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
         setIsCheckingApiKey(false)
       }
     } else {
-      setApiKeyMissing(true)
       setIsCheckingApiKey(false)
     }
   }
 
+  // Compute whether the user can use chat: admin or has API key or has remaining free-trial
+  const canUseChat = isAuthenticated && (isAdminFromStatus || hasApiKey || (freeTrial && freeTrial.enabled && freeTrial.remaining > 0))
+
   useEffect(() => {
     checkApiKey()
 
-    // Periodically check API key status to handle backend restarts
-    // Increased interval to 10 seconds to reduce rate limiting issues
-    const intervalId = setInterval(() => {
-      if (isAuthenticated) {
-        checkApiKey()
-      }
-    }, 10000) // Check every 10 seconds
-
-    return () => clearInterval(intervalId)
+    // Only check on mount, not periodically
+    // User must manually click refresh button to check again
+    // This prevents the flashing warning issue
+    
+    // Clean up function - no interval to clear
+    return () => {}
   }, [isAuthenticated])
 
   // Auto-unfold chat history when in split layout
@@ -1528,9 +1554,28 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
       return
     }
 
-    if (apiKeyMissing) {
-      setError('Please configure your Groq API key in Settings.')
+    if (!canUseChat) {
+      setError('Free trial exhausted or API key not configured. Please add your Groq API key in Settings to continue.')
       return
+    }
+
+    // INCREMENT FREE TRIAL IMMEDIATELY (before sending message)
+    // This prevents duplicate counting even if multiple requests are made
+    if (!hasApiKey && !isAdminFromStatus && freeTrial && freeTrial.enabled && freeTrial.remaining > 0) {
+      const newUsedCount = freeTrial.used + 1
+      
+      // Update local state immediately
+      setFreeTrial(prev => prev ? { ...prev, used: newUsedCount, remaining: Math.max(0, prev.limit - newUsedCount) } : null)
+      
+      // Sync to backend asynchronously (don't wait for it)
+      const token = localStorage.getItem('auth_token')
+      if (token) {
+        updateFreeTrialCount(token, newUsedCount).catch(err => {
+          console.error('Failed to sync free trial count to backend:', err)
+          // Re-fetch from backend to get the real count (prevents hacking)
+          checkApiKey()
+        })
+      }
     }
 
     if (isCollapsed) {
@@ -2139,6 +2184,14 @@ Follow these strict rules:
       const responseTimeMs = Date.now() - queryStartTime
       analytics.trackAIResponse(modelMode, responseTimeMs)
       
+      // SYNC WITH MONGODB: Re-fetch free trial status to prevent frontend manipulation
+      // This ensures the displayed count matches the backend truth
+      if (!hasApiKey && !isAdminFromStatus && freeTrial && freeTrial.enabled) {
+        checkApiKey().catch(err => {
+          console.error('Failed to sync free trial status after message:', err)
+        })
+      }
+      
       setIsLoading(false)
       abortControllerRef.current = null
       inputRef.current?.focus()
@@ -2655,6 +2708,18 @@ Follow these strict rules:
     setError(null)
 
     try {
+      // Check if user can generate a quiz (especially for free trial users)
+      const options = {
+        count: count,
+        difficulty: 'medium',
+        questionTypes: types
+      }
+      
+      const eligibility = await canGenerateQuiz(pdfText, options)
+      if (!eligibility.canGenerate) {
+        throw new Error(eligibility.error || 'You are not eligible to generate a quiz at this time.')
+      }
+
       const questions = await generateQuiz(pdfText, {
         count: count,
         difficulty: 'medium',
@@ -2734,11 +2799,21 @@ Follow these strict rules:
     if (!question.pageReference) {
       // Use current page if no page reference
       const pageNumber = currentPageNumber || 1
-      const questionText = `Quiz Question: ${question.question}\n\nYour Answer: ${userAnswer}\n${isCorrect ? '✓ Correct!' : '✗ Incorrect'}\n\nExplanation: ${question.explanation}`
+      const questionText = `Quiz Question: ${question.question}
+
+Your Answer: ${userAnswer}
+${isCorrect ? '✓ Correct!' : '✗ Incorrect'}
+
+Explanation: ${question.explanation}`
       
       onAddAnnotationToPDF?.(questionText, pageNumber, 0.5)
     } else {
-      const questionText = `Quiz Question: ${question.question}\n\nYour Answer: ${userAnswer}\n${isCorrect ? '✓ Correct!' : '✗ Incorrect'}\n\nExplanation: ${question.explanation}`
+      const questionText = `Quiz Question: ${question.question}
+
+Your Answer: ${userAnswer}
+${isCorrect ? '✓ Correct!' : '✗ Incorrect'}
+
+Explanation: ${question.explanation}`
       
       onAddAnnotationToPDF?.(questionText, question.pageReference, 0.5)
     }
@@ -2758,7 +2833,13 @@ Follow these strict rules:
       correctAnswerText = question.correctAnswer
     }
     
-    const noteContent = `**Quiz Question** ${isCorrect ? '✓' : '✗'}\n\n${question.question}\n\n**Correct Answer:** ${correctAnswerText}\n\n**Explanation:** ${question.explanation}`
+    const noteContent = `**Quiz Question** ${isCorrect ? '✓' : '✗'}
+
+${question.question}
+
+**Correct Answer:** ${correctAnswerText}
+
+**Explanation:** ${question.explanation}`
     
     onCreateKnowledgeNote?.(
       noteContent,
@@ -2788,6 +2869,11 @@ Follow these strict rules:
             <QuizConfiguration
               onStartQuiz={handleStartQuiz}
               onBack={handleBackFromQuizConfig}
+              apiKeyStatus={{
+                hasApiKey,
+                isAdmin: isAdminFromStatus,
+                freeTrial: freeTrial || undefined
+              }}
             />
           )}
           {isGeneratingQuiz && (
@@ -2838,33 +2924,6 @@ Follow these strict rules:
           </span>
         </div>
       )}
-      {!authLoading && isAuthenticated && !isCheckingApiKey && apiKeyMissing && layout === 'floating' && (
-        <div className="api-key-warning-outer">
-          <div className="warning-content">
-            <span>⚠️ Groq API key not configured</span>
-            <span className="warning-hint">
-              {user?.role === 'admin'
-                ? 'Admin API key not configured on server'
-                : 'Add your API key in Settings (click the gear icon)'}
-            </span>
-          </div>
-          <button
-            className="api-key-refresh-button"
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              checkApiKey()
-            }}
-            title="Refresh API key status"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="23 4 23 10 17 10"></polyline>
-              <polyline points="1 20 1 14 7 14"></polyline>
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-            </svg>
-          </button>
-        </div>
-      )}
 
       {layout === 'floating' && (
         <div className={`model-selector-bar ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
@@ -2873,7 +2932,7 @@ Follow these strict rules:
               <ModelModeToggle
                 mode={modelMode}
                 onModeChange={handleModeChange}
-                disabled={apiKeyMissing}
+                disabled={!canUseChat}
               />
             </div>
             {isVisionModel() && (
@@ -2886,7 +2945,7 @@ Follow these strict rules:
                   onChange={handleImageUpload}
                   style={{ display: 'none' }}
                 />
-                <button
+                  <button
                   type="button"
                   onClick={(e) => {
                     e.preventDefault()
@@ -2895,7 +2954,7 @@ Follow these strict rules:
                   }}
                   className="image-upload-button"
                   title="Upload images"
-                  disabled={apiKeyMissing}
+                  disabled={!canUseChat}
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -3001,25 +3060,70 @@ Follow these strict rules:
 
         {(!isCollapsed || layout === 'split') && (
           <div ref={messagesContainerRef} className="chatgpt-messages">
-            {messages.length === 0 && (
-              <div className="welcome-screen">
-                <div className="welcome-icon">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z"
-                      fill="#10a37f"
-                      opacity="0.1"
-                    />
-                    <path
-                      d="M6 9H18M6 13H14"
-                      stroke="#10a37f"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
+            {/* Floating layout: Warning bar inside messages container (floats on top) */}
+            {!authLoading && isAuthenticated && !isCheckingApiKey && !canUseChat && layout === 'floating' && (
+              <div className="api-key-warning-floating">
+                <div className="warning-content">
+                  <span>⚠️ Groq API key not configured</span>
+                  <span className="warning-hint">
+                    {user?.role === 'admin'
+                      ? 'Admin API key not configured on server'
+                      : (freeTrial && freeTrial.enabled && freeTrial.remaining > 0)
+                        ? `Free trial available: ${freeTrial.remaining} remaining` 
+                        : 'Add your API key in Settings (click the gear icon)'}
+                  </span>
                 </div>
-                <h3>How can I help you today?</h3>
-                <p>Ask me anything about your PDF, or select text to get context-specific answers.</p>
+                <button
+                  className="api-key-refresh-button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    checkApiKey()
+                  }}
+                  title="Refresh API key status"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
+                </button>
+              </div>
+            )}
+            {/* Split layout: Warning bar inside messages container (floats on top) */}
+            {!authLoading && !isAuthenticated && layout === 'split' && (
+              <div className="api-key-warning-floating">
+                <span>🔐 Please sign in to use the chat feature</span>
+                <span className="warning-hint">
+                  Click "Sign in with Google" in the navigation bar
+                </span>
+              </div>
+            )}
+            {!authLoading && isAuthenticated && !isCheckingApiKey && !canUseChat && layout === 'split' && (
+              <div className="api-key-warning-floating">
+                <div className="warning-content">
+                  <span>⚠️ Groq API key not configured</span>
+                  <span className="warning-hint">
+                    {user?.role === 'admin'
+                      ? 'Admin API key not configured on server'
+                      : 'Add your API key in Settings (click the gear icon)'}
+                  </span>
+                </div>
+                <button
+                  className="api-key-refresh-button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    checkApiKey()
+                  }}
+                  title="Refresh API key status"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
+                </button>
               </div>
             )}
             {messages.map((message, index) => {
@@ -3717,43 +3821,6 @@ Follow these strict rules:
           </div>
         )}
 
-        {/* Split layout: Warning bar above model selector */}
-        {!authLoading && !isAuthenticated && layout === 'split' && (
-          <div className="api-key-warning-split-top">
-            <span>🔐 Please sign in to use the chat feature</span>
-            <span className="warning-hint">
-              Click "Sign in with Google" in the navigation bar
-            </span>
-          </div>
-        )}
-        {!authLoading && isAuthenticated && !isCheckingApiKey && apiKeyMissing && layout === 'split' && (
-          <div className="api-key-warning-split-top">
-            <div className="warning-content">
-              <span>⚠️ Groq API key not configured</span>
-              <span className="warning-hint">
-                {user?.role === 'admin'
-                  ? 'Admin API key not configured on server'
-                  : 'Add your API key in Settings (click the gear icon)'}
-              </span>
-            </div>
-            <button
-              className="api-key-refresh-button"
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                checkApiKey()
-              }}
-              title="Refresh API key status"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="23 4 23 10 17 10"></polyline>
-                <polyline points="1 20 1 14 7 14"></polyline>
-                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-              </svg>
-            </button>
-          </div>
-        )}
-
         {/* Split layout: Model selector bar above input */}
         {layout === 'split' && (
           <>
@@ -3763,7 +3830,7 @@ Follow these strict rules:
                   <ModelModeToggle
                     mode={modelMode}
                     onModeChange={handleModeChange}
-                    disabled={apiKeyMissing || !isAuthenticated}
+                    disabled={!canUseChat || !isAuthenticated}
                   />
                 </div>
                 {isVisionModel() && (
@@ -3785,7 +3852,7 @@ Follow these strict rules:
                       }}
                       className="image-upload-button"
                       title="Upload images"
-                      disabled={apiKeyMissing || !isAuthenticated}
+                      disabled={!canUseChat || !isAuthenticated}
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -3881,6 +3948,26 @@ Follow these strict rules:
               )}
             </div>
           )}
+          
+          {/* Free trial badge - compact design above input */}
+          {!hasApiKey && !isAdminFromStatus && freeTrial && freeTrial.enabled && (
+            <div className="free-trial-badge">
+              <div className="free-trial-content">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                </svg>
+                <span className="trial-text">Free Trial</span>
+                <div className="trial-count-badge">{freeTrial.remaining}/{freeTrial.limit}</div>
+              </div>
+              <div className="trial-progress-mini">
+                <div 
+                  className="trial-fill-mini" 
+                  style={{ width: `${Math.round((freeTrial.remaining / Math.max(1, freeTrial.limit)) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+          
           <div className={`input-wrapper${isDraggingOver && isVisionModel() ? ' drag-over' : ''}${isInputFocused ? ` focus-${modelMode}` : ''}`}>
             <textarea
               ref={inputRef}
@@ -3892,7 +3979,7 @@ Follow these strict rules:
               placeholder="Ask a question..."
               rows={1}
               className="chatgpt-input"
-              disabled={isLoading || apiKeyMissing || !isAuthenticated}
+              disabled={isLoading || !canUseChat || !isAuthenticated}
             />
             {isLoading ? (
               <button
@@ -3908,7 +3995,7 @@ Follow these strict rules:
             ) : (
               <button
                 onClick={handleSend}
-                disabled={(!input.trim() && !selectedText && uploadedImages.length === 0) || apiKeyMissing || !isAuthenticated}
+                disabled={(!input.trim() && !selectedText && uploadedImages.length === 0) || !canUseChat || !isAuthenticated}
                 className="send-button"
                 title="Send message"
               >
@@ -3926,8 +4013,8 @@ Follow these strict rules:
           </div>
         </div>
 
-        {/* Disclaimer - positioned below input bar. In split layout show only on the mode selection page (no messages). */}
-        {layout === 'split' && messages.length === 0 && !selectedText && (
+        {/* Disclaimer - Only show on mode selection screen (no interaction mode chosen and no messages). */}
+        {layout === 'split' && !interactionMode && messages.length === 0 && !selectedText && (
           <div className={`footer-text-outer split-footer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
             <span className="footer-text">
               AI responses may contain errors. Please verify important information.
@@ -3935,7 +4022,7 @@ Follow these strict rules:
           </div>
         )}
 
-        {layout === 'floating' && (
+        {layout === 'floating' && !interactionMode && messages.length === 0 && !selectedText && (
           <div className={`footer-text-outer ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
             <span className="footer-text">
               AI responses may contain errors. Please verify important information.

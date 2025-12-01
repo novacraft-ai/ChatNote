@@ -70,6 +70,7 @@ function PDFViewer({
   const pdfViewerRef = useRef<HTMLDivElement>(null)
   const isScrollingRef = useRef(false)
   const pageDimensionsRef = useRef<Map<number, { width: number; height: number }>>(new Map())
+  const [renderKey, setRenderKey] = useState<number>(0) // Force re-render on resize
 
   // Annotation state - initialize with initialAnnotations if provided
   const [annotations, setAnnotations] = useState<Annotation[]>(initialAnnotations)
@@ -400,6 +401,33 @@ function PDFViewer({
       container?.removeEventListener('scroll', handleScroll)
     }
   }, [numPages, onPageChange])
+
+  // Handle window resize to maintain canvas quality
+  // When window resizes, we need to force PDF pages to re-render with proper devicePixelRatio
+  useEffect(() => {
+    let resizeTimeout: NodeJS.Timeout | null = null
+
+    const handleResize = () => {
+      // Debounce resize events to avoid too many re-renders
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout)
+      }
+
+      resizeTimeout = setTimeout(() => {
+        // Force re-render by incrementing the render key
+        setRenderKey(prev => prev + 1)
+      }, 150) // Wait 150ms after resize stops
+    }
+
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout)
+      }
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [])
 
   const onDocumentLoadError = (error: Error) => {
     console.error('PDF load error:', error)
@@ -1299,6 +1327,7 @@ function PDFViewer({
 
   // Recent PDFs state + background prefetch (stale-while-revalidate)
   const [recentPdfsState, setRecentPdfsState] = useState<any[]>(() => getRecentPDFsFromCache(3))
+  const [showRecentPdfsAnimated, setShowRecentPdfsAnimated] = useState<boolean>(false)
 
   useEffect(() => {
     let mounted = true
@@ -1317,6 +1346,16 @@ function PDFViewer({
     }
   }, [isDriveAuthorized])
 
+  // Trigger an entrance animation when recent PDFs become available
+  useEffect(() => {
+    if (isDriveAuthorized && recentPdfsState && recentPdfsState.length > 0) {
+      // next tick to ensure element is mounted before adding class
+      const raf = requestAnimationFrame(() => setShowRecentPdfsAnimated(true))
+      return () => cancelAnimationFrame(raf)
+    }
+    setShowRecentPdfsAnimated(false)
+  }, [isDriveAuthorized, recentPdfsState])
+
   if (!file && !isLoadingPdf) {
     // Only show recent PDFs if user isDriveAuthorized
     // Props are now destructured above
@@ -1327,26 +1366,29 @@ function PDFViewer({
     return (
       <div className={`pdf-viewer-empty ${layout === 'floating' ? 'float-layout' : ''}`}>  
         <div className="start-page-content">
-          <img src={chatNoteIcon} alt="ChatNote Logo" className="start-logo" />
-          <div className="upload-container">
-            <label htmlFor="pdf-upload" className="upload-button modern-upload">
-              <span className="upload-icon" aria-hidden="true">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 19V6M5 12l7-7 7 7" /><rect x="3" y="19" width="18" height="2" rx="1" /></svg>
-              </span>
-              <span>Upload PDF</span>
-            </label>
-            <input
-              id="pdf-upload"
-              type="file"
-              accept="application/pdf"
-              onChange={handleFileChange}
-              style={{ display: 'none' }}
-            />
+          <div className="start-top">
+            <img src={chatNoteIcon} alt="ChatNote Logo" className="start-logo" />
+            <div className="upload-container">
+              <label htmlFor="pdf-upload" className="upload-button modern-upload">
+                <span className="upload-icon" aria-hidden="true">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 19V6M5 12l7-7 7 7" /><rect x="3" y="19" width="18" height="2" rx="1" /></svg>
+                </span>
+                <span>Upload PDF</span>
+              </label>
+              <input
+                id="pdf-upload"
+                type="file"
+                accept="application/pdf"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+              />
+            </div>
           </div>
+
           {isDriveAuthorized && recentPdfs.length > 0 && (
             <div className="recent-pdf-suggestions">
               <div className="suggestions-title">Recent PDFs</div>
-              <div className="suggestions-list">
+              <div className={`suggestions-list ${showRecentPdfsAnimated ? 'show' : ''}`}>
                 {recentPdfs.map((pdf: any, idx: number) => (
                   <button
                     key={pdf.pdfId || idx}
@@ -1471,9 +1513,10 @@ function PDFViewer({
                   style={{ position: 'relative' }}
                 >
                   <Page
-                    key={`page_${pageNum}`}
+                    key={`page_${pageNum}_${renderKey}`}
                     pageNumber={pageNum}
                     scale={scale}
+                    devicePixelRatio={window.devicePixelRatio || 1}
                     renderTextLayer={true}
                     renderAnnotationLayer={true}
                     onLoadSuccess={(page) => onPageLoadSuccess({ pageNumber: pageNum, page })}

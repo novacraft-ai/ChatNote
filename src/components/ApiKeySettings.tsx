@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { checkApiKeyStatus, saveApiKey } from '../services/authService'
+import { checkApiKeyStatus, saveApiKey, type ApiKeyStatus } from '../services/authService'
 import './ApiKeySettings.css'
 
 export default function ApiKeySettings() {
@@ -10,6 +10,7 @@ export default function ApiKeySettings() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [freeTrialStatus, setFreeTrialStatus] = useState<ApiKeyStatus['freeTrial'] | null>(null)
 
   useEffect(() => {
     if (user && !isAdmin) {
@@ -29,6 +30,7 @@ export default function ApiKeySettings() {
 
       const status = await checkApiKeyStatus(token)
       setHasApiKey(status.hasApiKey)
+      setFreeTrialStatus(status.freeTrial || null)
     } catch (error) {
       console.error('Failed to load API key status:', error)
     } finally {
@@ -103,6 +105,45 @@ export default function ApiKeySettings() {
           <span className="api-key-status-badge">Configured</span>
         )}
       </div>
+
+      {/* Free Trial Status Banner */}
+      {!hasApiKey && freeTrialStatus && freeTrialStatus.enabled && (
+        <div className="api-key-info free-trial">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 6v6l4 2" />
+          </svg>
+          <div>
+            <p className="api-key-title">Free Trial Active</p>
+            <p className="api-key-description">
+              {freeTrialStatus.remaining} of {freeTrialStatus.limit} free conversations remaining
+            </p>
+            <div className="free-trial-progress">
+              <div 
+                className="free-trial-progress-bar" 
+                style={{ width: `${(freeTrialStatus.remaining / freeTrialStatus.limit) * 100}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Free Trial Exhausted Warning */}
+      {!hasApiKey && freeTrialStatus && !freeTrialStatus.enabled && freeTrialStatus.used >= freeTrialStatus.limit && (
+        <div className="api-key-info warning">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <div>
+            <p className="api-key-title">Free Trial Expired</p>
+            <p className="api-key-description">
+              You've used all {freeTrialStatus.limit} free conversations. Add your own API key below to continue.
+            </p>
+          </div>
+        </div>
+      )}
 
       <p className="api-key-description">
         {hasApiKey

@@ -20,6 +20,8 @@ import { analytics } from './services/analyticsService'
 import ResizableDivider from './components/ResizableDivider'
 import { type ModelMode } from './components/ModelModeToggle'
 import './App.css'
+import PrivacyConsentModal from './components/PrivacyConsentModal'
+import AppDialog from './components/AppDialog'
 
 const PDFViewer = lazy(() => import('./components/PDFViewer'))
 
@@ -28,7 +30,7 @@ type ChatLayout = 'floating' | 'split'
 function AppContent() {
   const { theme } = useTheme()
   const { isChatVisible, setChatVisible } = useChatVisibility()
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated, user, refreshUser } = useAuth()
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [pdfText, setPdfText] = useState<string>('')
   const [selectedText, setSelectedText] = useState<string>('')
@@ -53,7 +55,11 @@ function AppContent() {
   const hasMarkedInitialHistoryRef = useRef(false)
   const resetModeCallbackRef = useRef<(() => void) | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
-  
+  const [showPrivacyConsent, setShowPrivacyConsent] = useState(false)
+  const [appDialog, setAppDialog] = useState<{ open: boolean; message: string }>({ open: false, message: '' })
+
+  const closeAppDialog = () => setAppDialog({ open: false, message: '' })
+
   // Model mode and chat width state for resizable divider
   const [modelMode, setModelMode] = useState<ModelMode>(() => {
     const saved = localStorage.getItem('chatModelMode')
@@ -80,6 +86,12 @@ function AppContent() {
     if (driveAuthSuccess === 'true') {
       // Drive authorization successful - clear URL params
       window.history.replaceState({}, '', window.location.pathname)
+      // Refresh user data to get updated googleDriveEligible status
+      refreshUser()
+      // Set drive authorized state to true after a small delay to ensure user data is refreshed
+      setTimeout(() => {
+        setIsDriveAuthorized(true)
+      }, 500)
       // Reset drive auth check to allow status check
       setDriveAuthChecked(false)
       // Prefetch PDF history after successful authorization
@@ -123,12 +135,17 @@ function AppContent() {
       hasMarkedInitialHistoryRef.current = true
     }
 
+    // Only attempt Drive checks if the user is authenticated AND has given privacy consent.
     if (isAuthenticated && user && !driveAuthChecked) {
-      setDriveAuthChecked(true)
-      // Small delay to ensure user state is fully set
-      setTimeout(() => {
-        checkAndAuthorizeDrive()
-      }, 500)
+      // If user has already agreed to privacy consent, proceed with Drive check.
+      if (user.privacyConsent) {
+        setDriveAuthChecked(true)
+        // Small delay to ensure user state is fully set
+        setTimeout(() => {
+          checkAndAuthorizeDrive()
+        }, 500)
+      }
+      // If the user hasn't consented yet we defer drive checks until they agree
     } else if (!isAuthenticated) {
       setDriveAuthChecked(false)
       hasMarkedInitialHistoryRef.current = false
@@ -150,11 +167,23 @@ function AppContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user])
 
+  // If consent modal is visible or user is not authenticated, ensure Drive prompt is hidden
+  useEffect(() => {
+    if (showPrivacyConsent || !isAuthenticated) {
+      setShowDriveSyncPrompt(false)
+    }
+  }, [showPrivacyConsent, isAuthenticated])
+
   // Check Drive authorization status and auto-authorize if needed
   const checkAndAuthorizeDrive = async () => {
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) return
+
+      // Ensure user has given privacy consent before starting Drive auth flow
+      if (!isAuthenticated || !user || !user.privacyConsent || !user.googleDriveEligible) {
+        return
+      }
 
       // Check Drive status
       const statusResponse = await fetch(`${BACKEND_URL}/api/drive/status`, {
@@ -166,8 +195,10 @@ function AppContent() {
       if (statusResponse.ok) {
         const statusData = await statusResponse.json()
         if (statusData.authorized) {
-          // Already authorized - set state and prefetch PDF history
-          setIsDriveAuthorized(true)
+          // Already authorized - set state and prefetch PDF history after a small delay
+          setTimeout(() => {
+            setIsDriveAuthorized(true)
+          }, 100)
           prefetchPDFHistory(BACKEND_URL).catch(() => {
             // Silently ignore errors - prefetch is non-critical
           })
@@ -190,6 +221,11 @@ function AppContent() {
           // Ask user before redirecting
           setDriveAuthUrl(authData.authUrl)
           setShowDriveSyncPrompt(true)
+        } else if (authData.authorized) {
+          // Already authorized - set state after a small delay
+          setTimeout(() => {
+            setIsDriveAuthorized(true)
+          }, 100)
         }
       }
     } catch (error) {
@@ -667,7 +703,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
     try {
       const token = localStorage.getItem('auth_token')
       if (!token) {
-        alert('Please log in to load PDF from history')
+        setAppDialog({ open: true, message: 'Please log in to load PDF from history' })
         setIsLoadingPdf(false)
         return
       }
@@ -737,7 +773,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
       // The PDFViewer will handle clearing it via onDocumentLoadSuccess
     } catch (error) {
       console.error('Failed to load PDF from history:', error)
-      alert('Failed to load PDF. Please try again.')
+      setAppDialog({ open: true, message: 'Failed to load PDF. Please try again.' })
       setIsLoadingPdf(false)
     }
     // Note: Don't clear isLoadingPdf here - let PDFViewer clear it when document loads
@@ -811,8 +847,67 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
     }
   }, [knowledgeNotes, currentPdfId, isAuthenticated, handleSaveKnowledgeNotes])
 
+  // Handle privacy consent modal
+  useEffect(() => {
+    if (isAuthenticated && user && !user.privacyConsent) {
+      setShowPrivacyConsent(true);
+    }
+  }, [isAuthenticated, user]);
+
+  const handleAgree = async () => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      setAppDialog({ open: true, message: 'Please log in to agree to the privacy consent.' });
+      return;
+    }
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/user/privacy-consent`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ consent: true }),
+      });
+
+      if (response.ok) {
+        await refreshUser();
+        setShowPrivacyConsent(false);
+        // After consent, kick off Drive auth check so user can be prompted to sync.
+        try {
+          setDriveAuthChecked(true)
+          setTimeout(() => {
+            checkAndAuthorizeDrive()
+          }, 300)
+        } catch (err) {
+          // Ignore - non-critical
+        }
+      } else {
+        setAppDialog({ open: true, message: 'Failed to update consent. Please try again.' });
+      }
+    } catch (error) {
+      console.error('Failed to update consent:', error);
+      setAppDialog({ open: true, message: 'An error occurred. Please try again.' });
+    }
+  };
+
+  const handleDisagree = () => {
+    setAppDialog({ open: true, message: 'You must agree to the privacy consent to use the platform.' })
+  };
+
   return (
     <div className="app">
+      {showPrivacyConsent && (
+        <PrivacyConsentModal 
+          onAgree={handleAgree} 
+          onDisagree={handleDisagree} 
+          isVisible={showPrivacyConsent} 
+        />
+      )}
+      {appDialog.open && (
+        <AppDialog open={appDialog.open} message={appDialog.message} onClose={closeAppDialog} />
+      )}
       <SaveProvider 
         hasUnsavedChanges={hasCurrentPdfUnsavedChanges} 
         saveCurrentState={saveCurrentPdfState}
@@ -825,6 +920,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
           currentMode={currentInteractionMode}
           onResetMode={handleResetMode}
           hasPdf={pdfFile !== null}
+          isGoogleDriveEligible={user?.googleDriveEligible ?? false}
         />
       </SaveProvider>
       <PDFHistoryPanel
@@ -834,11 +930,13 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
         hasUnsavedChanges={hasCurrentPdfUnsavedChanges}
         onSaveBeforeFetch={handleSaveBeforeFetch}
         isDriveAuthorized={isDriveAuthorized}
+        isGoogleDriveEligible={user?.googleDriveEligible ?? false}
       />
       <div className={`main-content ${chatLayout === 'split' ? 'split-layout' : ''} ${showKnowledgeNotes && chatLayout === 'floating' ? 'has-knowledge-notes' : ''}`}>
         <ErrorBoundary>
           <Suspense fallback={<div style={{ padding: '20px', textAlign: 'center' }}>Loading PDF viewer...</div>}>
             <PDFViewer
+              key={isAuthenticated ? 'authenticated' : 'unauthenticated'}
               file={pdfFile}
               onFileUpload={handlePdfUpload}
               onTextSelection={handleTextSelection}
@@ -992,7 +1090,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
         </div>
       )}
       <DriveSyncPrompt
-        isOpen={showDriveSyncPrompt}
+        isOpen={showDriveSyncPrompt && !showPrivacyConsent && (user?.googleDriveEligible ?? false)}
         onConfirm={handleDriveSyncConfirm}
         onCancel={handleDriveSyncCancel}
       />

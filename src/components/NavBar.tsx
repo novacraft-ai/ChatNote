@@ -13,9 +13,10 @@ interface NavBarProps {
   currentMode?: 'guide-me-learn' | 'quiz-me' | null
   onResetMode?: () => void
   hasPdf?: boolean
+  isGoogleDriveEligible?: boolean
 }
 
-function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMode, hasPdf = false }: NavBarProps) {
+function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMode, hasPdf = false, isGoogleDriveEligible = false }: NavBarProps) {
   const { theme, toggleTheme } = useTheme()
   const { isChatVisible, toggleChatVisibility } = useChatVisibility()
   const { user } = useAuth()
@@ -27,7 +28,7 @@ function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMo
 
   // Check if user is from UCLA (g.ucla.edu domain)
   const isUCLAUser = user?.email?.endsWith('@g.ucla.edu') ?? false
-
+  
   // Get mode display text
   const getModeText = () => {
     if (currentMode === 'quiz-me') return 'Quiz Mode'
@@ -52,13 +53,12 @@ function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMo
     <>
       <nav className="navbar">
         <div className="navbar-content">
-          {onOpenHistory && (
+          {isGoogleDriveEligible && onOpenHistory && (
             <button
               className="history-toggle"
               onClick={onOpenHistory}
               title="PDF History"
               aria-label="Open PDF history"
-              disabled={isSavingSession}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="3" y1="12" x2="21" y2="12" />
@@ -68,7 +68,7 @@ function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMo
             </button>
           )}
           <div className="navbar-title">
-            {modeText && (
+            {modeText && hasPdf && (
               <>
                 <button className="mode-indicator" onClick={onResetMode} title="Click to change mode">
                   <span className="mode-text">{modeText}</span>
@@ -90,6 +90,8 @@ function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMo
           <div className="navbar-actions">
             <LoginButton />
             <div className="navbar-actions-desktop">
+              {/* PDF history toggle moved to left side */}
+              {/* Removed: PDF history toggle was here */}
               {hasPdf && (
                 <>
                   <button
@@ -127,9 +129,65 @@ function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMo
                 title="Settings"
                 aria-label="Settings"
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24" />
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M19.14 12.94
+                       C19.18 12.64 19.2 12.32 19.2 12
+                       C19.2 11.68 19.18 11.36 19.14 11.06
+                       L20.74 9.88
+                       C20.9 9.76 20.95 9.54 20.86 9.35
+                       L19.26 6.35
+                       C19.16 6.16 18.95 6.08 18.75 6.14
+                       L16.82 6.76
+                       C16.43 6.48 16.02 6.25 15.57 6.07
+                       L15.3 4.06
+                       C15.27 3.86 15.11 3.72 14.9 3.72
+                       H9.1
+                       C8.89 3.72 8.73 3.86 8.7 4.06
+                       L8.43 6.07
+                       C7.98 6.25 7.57 6.48 7.18 6.76
+                       L5.25 6.14
+                       C5.05 6.08 4.84 6.16 4.74 6.35
+                       L3.14 9.35
+                       C3.05 9.54 3.1 9.76 3.26 9.88
+                       L4.86 11.06
+                       C4.82 11.36 4.8 11.68 4.8 12
+                       C4.8 12.32 4.82 12.64 4.86 12.94
+                       L3.26 14.12
+                       C3.1 14.24 3.05 14.46 3.14 14.65
+                       L4.74 17.65
+                       C4.84 17.84 5.05 17.92 5.25 17.86
+                       L7.18 17.24
+                       C7.57 17.52 7.98 17.75 8.43 17.93
+                       L8.7 19.94
+                       C8.73 20.14 8.89 20.28 9.1 20.28
+                       H14.9
+                       C15.11 20.28 15.27 20.14 15.3 19.94
+                       L15.57 17.93
+                       C16.02 17.75 16.43 17.52 16.82 17.24
+                       L18.75 17.86
+                       C18.95 17.92 19.16 17.84 19.26 17.65
+                       L20.86 14.65
+                       C20.95 14.46 20.9 14.24 20.74 14.12
+                       L19.14 12.94Z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="3"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  />
                 </svg>
               </button>
               {hasPdf && (
@@ -233,6 +291,23 @@ function NavBar({ onOpenHistory, isSavingSession = false, currentMode, onResetMo
                   </>
                 )}
               </button>
+              )}
+              {onOpenHistory && isGoogleDriveEligible && (
+                <button
+                  className="mobile-menu-item"
+                  onClick={() => {
+                    onOpenHistory()
+                    setShowMobileMenu(false)
+                  }}
+                  disabled={isSavingSession}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="18" x2="21" y2="18" />
+                  </svg>
+                  <span>PDF History</span>
+                </button>
               )}
               {hasPdf && (
                 <>

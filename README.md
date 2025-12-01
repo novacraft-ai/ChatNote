@@ -16,6 +16,7 @@ ChatNote provides an interactive learning platform where students can:
 - **PDF Viewer**: Full-featured PDF viewer with zoom controls, page navigation, and text selection
 - **AI Chat Interface**: Contextual chatbot that uses selected PDF text to provide relevant answers
 - **Multiple AI Models**: Support for various AI models including GPT OSS, DeepSeek, Llama, Qwen, Gemma, etc.
+- **Free Trial**: New users get limited free AI conversations without needing to configure an API key
 - **Flexible Layouts**: Two layout modes - floating chat panel and split-screen view
 - **Theme Support**: Light and dark theme with smooth transitions
 - **Responsive Design**: Modern, mobile-friendly UI

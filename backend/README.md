@@ -11,6 +11,7 @@ The ChatNote backend handles user authentication via Google OAuth, securely stor
 - Google OAuth authentication with JWT tokens
 - Encrypted API key storage
 - Chat proxy to Groq API
+- **Free trial system**: New users get limited free conversations without requiring an API key
 - Two-stage content moderation chain (configurable):
   - Stage 1: Prompt Guard - Detects jailbreak attempts
   - Stage 2: Llama Guard - Detects harmful content

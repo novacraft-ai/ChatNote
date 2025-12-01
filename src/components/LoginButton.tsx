@@ -24,6 +24,11 @@ export default function LoginButton() {
   const [googleLoaded, setGoogleLoaded] = useState(false)
   const [scriptError, setScriptError] = useState<string | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
+  
+  // Diagnostic logging - REMOVED FOR PRODUCTION
+  useEffect(() => {
+    // Removed debug logging for production
+  }, [user, authLoading])
 
   const handleLogout = async () => {
     // Check if there are unsaved changes
@@ -73,7 +78,8 @@ export default function LoginButton() {
         message.includes('The given origin is not allowed') ||
         message.includes('ERR_BLOCKED_BY_CLIENT') ||
         message.includes('Cross-Origin-Opener-Policy') ||
-        message.includes('Only one navigator.credentials.get request may be outstanding')
+        message.includes('Only one navigator.credentials.get request may be outstanding') ||
+        message.includes('Identity not selected by user') // Add this to suppress One Tap cancellation messages
       ) {
         return // Suppress these expected errors
       }
@@ -86,7 +92,8 @@ export default function LoginButton() {
         message.includes('GSI_LOGGER') ||
         message.includes('The given origin is not allowed') ||
         message.includes('Not signed in with the identity provider') ||
-        message.includes('Only one navigator.credentials.get request may be outstanding')
+        message.includes('Only one navigator.credentials.get request may be outstanding') ||
+        message.includes('Identity not selected by user') // Add this to suppress One Tap cancellation messages
       ) {
         return // Suppress these expected warnings
       }
@@ -102,6 +109,7 @@ export default function LoginButton() {
           message.includes('Only one navigator.credentials.get request may be outstanding') ||
           message.includes('AbortError') ||
           message.includes('The given origin is not allowed') ||
+          message.includes('Identity not selected by user') || // Add this to suppress One Tap cancellation messages
           source?.includes('accounts.google.com')
         )
       ) {
@@ -123,12 +131,26 @@ export default function LoginButton() {
   // Define callback before useEffect to avoid stale closure
   const handleCredentialResponse = useCallback(async (response: { credential: string }) => {
     try {
-      await login(response.credential)
-      // Remove the fallback button after successful login
+      // Clean up any existing Google UI before login
+      const backdrop = document.getElementById('google-login-backdrop')
       const button = document.getElementById('google-signin-button')
-      if (button) {
-        button.remove()
+      if (backdrop) backdrop.remove()
+      if (button) button.remove()
+      
+      await login(response.credential)
+      
+      // Additional cleanup after successful login
+      const cleanupElements = () => {
+        const prompts = document.querySelectorAll('.g_id_signin, .google-one-tap-modal, #google-login-backdrop, #google-signin-button')
+        prompts.forEach(el => el.remove())
       }
+      
+      // Immediate cleanup
+      cleanupElements()
+      
+      // Delayed cleanup to catch any elements that might appear after a short delay
+      setTimeout(cleanupElements, 100)
+      setTimeout(cleanupElements, 500)
     } catch (error) {
       console.error('Login failed:', error)
       alert(error instanceof Error ? error.message : 'Login failed. Please try again.')
@@ -138,6 +160,19 @@ export default function LoginButton() {
   useEffect(() => {
     // Don't initialize if user is already logged in
     if (user) {
+      // Ensure any Google UI is cleaned up when user is already logged in
+      const cleanupGoogleUI = () => {
+        const elements = document.querySelectorAll('.g_id_signin, .google-one-tap-modal, #google-login-backdrop, #google-signin-button')
+        elements.forEach(el => {
+          if (el instanceof HTMLElement) {
+            el.style.display = 'none'
+            // Remove after a frame to ensure it's not visible
+            setTimeout(() => el.remove(), 16)
+          }
+        })
+      }
+      
+      cleanupGoogleUI()
       return
     }
 
@@ -154,7 +189,10 @@ export default function LoginButton() {
       try {
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
-          callback: handleCredentialResponse
+          callback: handleCredentialResponse,
+          // Disable auto prompt to prevent unexpected One Tap prompts
+          auto_select: false,
+          cancel_on_tap_outside: true
         })
         setGoogleLoaded(true)
         // Don't auto-prompt if user is already logged in
@@ -179,7 +217,10 @@ export default function LoginButton() {
             client_id: GOOGLE_CLIENT_ID,
             callback: handleCredentialResponse,
             // Opt-in to FedCM to reduce warnings
-            use_fedcm_for_prompt: true
+            use_fedcm_for_prompt: true,
+            // Disable auto prompt to prevent unexpected One Tap prompts
+            auto_select: false,
+            cancel_on_tap_outside: true
           })
           setGoogleLoaded(true)
           setScriptError(null) // Clear any previous errors
@@ -212,8 +253,26 @@ export default function LoginButton() {
 
     document.head.appendChild(script)
 
+    // Cleanup function
     return () => {
       clearTimeout(timeout)
+      // Cancel any pending Google prompts when component unmounts
+      if (window.google?.accounts.id) {
+        try {
+          // Try to cancel any active One Tap prompts
+          // Note: Google doesn't provide a direct API to cancel prompts,
+          // but we can try to hide them
+          const prompts = document.querySelectorAll('.g_id_signin, .google-one-tap-modal')
+          prompts.forEach(el => {
+            if (el instanceof HTMLElement) {
+              el.style.display = 'none'
+              setTimeout(() => el.remove(), 100)
+            }
+          })
+        } catch (e) {
+          // Removed debug logging for production
+        }
+      }
       // Don't remove script on cleanup as it might be used elsewhere
     }
   }, [handleCredentialResponse, user])
@@ -221,12 +280,76 @@ export default function LoginButton() {
   // Remove fallback button and backdrop when user logs in
   useEffect(() => {
     if (user) {
-      const backdrop = document.getElementById('google-login-backdrop')
-      const button = document.getElementById('google-signin-button')
-      if (backdrop) backdrop.remove()
-      if (button) button.remove()
+      // Clean up any Google UI elements
+      const cleanupGoogleElements = () => {
+        const backdrop = document.getElementById('google-login-backdrop')
+        const button = document.getElementById('google-signin-button')
+        const prompt = document.querySelector('.g_id_signin') // Google's own prompt elements
+        
+        if (backdrop) {
+          backdrop.remove()
+        }
+        if (button) {
+          button.remove()
+        }
+        // Remove any Google prompt elements
+        if (prompt) {
+          prompt.remove()
+        }
+        
+        // Also hide any visible One Tap prompt
+        if (window.google?.accounts.id) {
+          try {
+            // Cancel any pending One Tap prompts
+            const cancelPrompts = () => {
+              // This is a workaround to cancel One Tap prompts
+              // by temporarily changing the display style
+              const prompts = document.querySelectorAll('.g_id_signin, .google-one-tap-modal')
+              prompts.forEach(el => {
+                if (el instanceof HTMLElement) {
+                  el.style.display = 'none'
+                }
+              })
+            }
+            cancelPrompts()
+          } catch (e) {
+            // Removed debug logging for production
+          }
+        }
+      }
+      
+      // Run cleanup immediately
+      cleanupGoogleElements()
+      
+      // Run cleanup again after a short delay to catch any delayed elements
+      const timeoutId = setTimeout(cleanupGoogleElements, 100)
+      
+      // Clean up timeout on unmount
+      return () => {
+        clearTimeout(timeoutId)
+      }
     }
   }, [user])
+
+  // Ensure Google script is properly initialized when needed
+  useEffect(() => {
+    // If user is logged in, we don't need to do anything
+    if (user) return
+    
+    // If Google is already loaded, we're good
+    if (window.google && googleLoaded) return
+    
+    // If we're still loading or have an error, don't reinitialize
+    if (authLoading || scriptError) return
+    
+    // Re-trigger Google initialization if needed
+    const token = localStorage.getItem('auth_token')
+    if (token && !user && !googleLoaded && !scriptError) {
+      // Reset loading state to retry initialization
+      setGoogleLoaded(false)
+      setScriptError(null)
+    }
+  }, [user, googleLoaded, scriptError, authLoading])
 
   const showFallbackButton = () => {
     // Remove any existing login popup
@@ -319,6 +442,12 @@ export default function LoginButton() {
   }
 
   const handleLogin = () => {
+    // If user is already logged in (safety check), don't show login UI
+    if (user) {
+      console.warn('Login button clicked but user is already logged in')
+      return
+    }
+    
     if (!GOOGLE_CLIENT_ID) {
       alert('Google OAuth is not configured. Please set VITE_GOOGLE_CLIENT_ID environment variable.')
       return
@@ -331,6 +460,17 @@ export default function LoginButton() {
 
     if (window.google && googleLoaded) {
       try {
+        // Cancel any existing prompts first
+        if (window.google.accounts.id) {
+          // Try to hide any existing One Tap prompts
+          const existingPrompts = document.querySelectorAll('.g_id_signin, .google-one-tap-modal')
+          existingPrompts.forEach(el => {
+            if (el instanceof HTMLElement) {
+              el.style.display = 'none'
+            }
+          })
+        }
+        
         // Try to show the One Tap prompt first
         window.google.accounts.id.prompt((notification: any) => {
           // Check if prompt was not displayed, skipped, or dismissed

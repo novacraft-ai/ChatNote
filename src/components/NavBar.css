@@ -21,6 +21,28 @@
   justify-content: space-between;
   position: relative;
   min-height: 40px;
+  gap: 8px;
+}
+
+/* Add some margin to the history toggle when it's on the left side */
+.navbar-content > .history-toggle:first-child {
+  margin-right: 8px;
+}
+
+/* Mobile: reduce padding and gap */
+@media (max-width: 768px) {
+  .navbar {
+    padding: 0 12px;
+  }
+  
+  .navbar-content {
+    gap: 4px;
+  }
+  
+  /* Add mobile version of margin for history toggle */
+  .navbar-content > .history-toggle:first-child {
+    margin-right: 4px;
+  }
 }
 
 .navbar-title {
@@ -31,6 +53,52 @@
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
+  max-width: calc(100% - 200px); /* Reserve space for buttons on both sides */
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Mobile: Reduce max-width to prevent overlap */
+@media (max-width: 768px) {
+  .navbar-title {
+    max-width: calc(100% - 120px); /* Less space for mobile buttons */
+  }
+  
+  /* Smaller title font on narrow screens */
+  .title-text {
+    font-size: 18px;
+  }
+  
+  .title-for {
+    font-size: 16px;
+  }
+  
+  .ucla-logo {
+    height: 28px;
+  }
+  
+  /* Hide mode indicator on very narrow screens */
+  .mode-indicator {
+    font-size: 9px;
+    padding: 2px 6px;
+    height: 18px;
+  }
+}
+
+/* Very narrow screens: Hide "for UCLA" to prevent overlap */
+@media (max-width: 480px) {
+  .navbar-title {
+    gap: 4px;
+  }
+  
+  .title-for,
+  .ucla-logo {
+    display: none;
+  }
+  
+  .mode-separator {
+    margin: 0 2px;
+  }
 }
 
 .mode-separator {
@@ -320,6 +388,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-left: auto; /* Push actions to the right */
 }
 
 .history-toggle,
@@ -338,6 +407,26 @@
   color: #333;
   transition: all 0.2s;
   padding: 0;
+  flex-shrink: 0;
+}
+
+/* Mobile: Smaller buttons */
+@media (max-width: 768px) {
+  .history-toggle,
+  .theme-toggle,
+  .settings-toggle,
+  .chat-toggle {
+    width: 36px;
+    height: 36px;
+  }
+  
+  .history-toggle svg,
+  .theme-toggle svg,
+  .settings-toggle svg,
+  .chat-toggle svg {
+    width: 18px;
+    height: 18px;
+  }
 }
 
 .history-toggle:hover,
@@ -391,9 +480,43 @@
   animation: modalSlideIn 0.2s ease-out;
 }
 
+/* Custom scrollbar for settings modal - Light theme */
+.settings-modal::-webkit-scrollbar {
+  width: 12px;
+}
+
+.settings-modal::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 0 12px 12px 0;
+}
+
+.settings-modal::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 6px;
+  border: 2px solid #f1f1f1;
+}
+
+.settings-modal::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
 [data-theme='dark'] .settings-modal {
   background: #1a1a1a;
   color: #ececf1;
+}
+
+/* Custom scrollbar for settings modal - Dark theme */
+[data-theme='dark'] .settings-modal::-webkit-scrollbar-track {
+  background: #2a2a2a;
+}
+
+[data-theme='dark'] .settings-modal::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+  border-color: #2a2a2a;
+}
+
+[data-theme='dark'] .settings-modal::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
 }
 
 @keyframes modalSlideIn {
@@ -471,6 +594,7 @@
   color: #333;
   transition: background 0.2s, color 0.2s;
   padding: 0;
+  margin-left: 8px; /* Add spacing between desktop actions and mobile toggle */
 }
 
 [data-theme='dark'] .mobile-menu-toggle {

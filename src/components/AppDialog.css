@@ -1,0 +1,45 @@
+.app-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+}
+
+.app-dialog {
+  width: min(480px, 92%);
+  background: var(--modal-bg, #fff);
+  color: var(--modal-text, #111);
+  border-radius: 10px;
+  padding: 18px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+  border: 1px solid var(--modal-border, rgba(0,0,0,0.06));
+}
+
+.app-dialog-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+  font-size: 1.05rem;
+}
+
+.app-dialog-message {
+  color: var(--modal-muted, #556);
+  margin-bottom: 14px;
+}
+
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.app-dialog-ok {
+  background: var(--modal-accent, #34d399);
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}

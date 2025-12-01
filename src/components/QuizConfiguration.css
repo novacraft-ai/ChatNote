@@ -463,3 +463,59 @@
     transform: scale(1);
   }
 }
+
+.quiz-limit-warning {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  color: #856404;
+  padding: 1rem;
+  border-radius: 8px;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+[data-theme='dark'] .quiz-limit-warning {
+  background: #332e1d;
+  border-color: #5c532a;
+  color: #d4c78c;
+}
+
+/* Additional styling for when user reaches quiz limit */
+.quiz-configuration.limit-reached .config-section {
+  opacity: 0.7;
+  transition: opacity 0.3s ease;
+}
+
+.quiz-configuration.limit-reached .question-type-card:not(.selected) {
+  background: var(--disabled-background);
+  border-color: var(--border-color);
+}
+
+.quiz-configuration.limit-reached .question-type-card:not(.selected):hover {
+  border-color: var(--border-color);
+  transform: none;
+  box-shadow: none;
+}
+
+.quiz-configuration.limit-reached .count-btn:not(:disabled) {
+  background: var(--disabled-background);
+  border-color: var(--border-color);
+}
+
+.quiz-configuration.limit-reached .count-input:not(:disabled) {
+  background: var(--disabled-background);
+  border-color: var(--border-color);
+}
+
+.quiz-configuration.limit-reached .count-slider:not(:disabled) {
+  opacity: 0.5;
+}
+
+.quiz-configuration.limit-reached .count-slider:not(:disabled)::-webkit-slider-thumb {
+  background: var(--border-color);
+}
+
+.quiz-configuration.limit-reached .count-slider:not(:disabled)::-moz-range-thumb {
+  background: var(--border-color);
+}

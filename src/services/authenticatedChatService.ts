@@ -446,7 +446,7 @@ export async function sendChatMessage(
 }
 
 /**
- * Check if chat is configured (user is authenticated and has API key)
+ * Check if chat is configured (user is authenticated and has API key or free trial)
  */
 export async function isChatConfigured(): Promise<boolean> {
   const token = getAuthToken()
@@ -461,7 +461,8 @@ export async function isChatConfigured(): Promise<boolean> {
 
     if (response.ok) {
       const data = await response.json()
-      return data.hasApiKey || data.isAdmin
+      // User can chat if they are admin, have API key, or have free trial remaining
+      return data.hasApiKey || data.isAdmin || (data.freeTrial?.enabled && data.freeTrial?.remaining > 0)
     }
     
     // If rate limited (429), don't treat as error - return current state

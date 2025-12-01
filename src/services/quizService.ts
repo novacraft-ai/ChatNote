@@ -4,6 +4,7 @@
  */
 
 import { sendChatMessage, type ChatMessage } from './authenticatedChatService'
+import { BACKEND_URL } from '../config'
 import { REASONING_MODELS } from '../config'
 import { QuizQuestion, QuizQuestionType } from '../types/interactionModes'
 
@@ -341,6 +342,38 @@ ${pdfText}`
   } catch (error) {
     console.error('Additional questions generation error:', error)
     throw new Error('Failed to generate additional questions')
+  }
+}
+
+/**
+ * Check if user can generate a quiz (one-time restriction for free trial users)
+ */
+export async function canGenerateQuiz(pdfText: string, options: any): Promise<{ canGenerate: boolean; error?: string }> {
+  const token = localStorage.getItem('auth_token')
+  if (!token) {
+    return { canGenerate: false, error: 'Authentication required' }
+  }
+
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/quiz/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ pdfText, options })
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      return { canGenerate: false, error: errorData.error || 'Failed to check quiz generation eligibility' }
+    }
+
+    const data = await response.json()
+    return { canGenerate: true }
+  } catch (error) {
+    console.error('Error checking quiz generation eligibility:', error)
+    return { canGenerate: false, error: 'Network error while checking quiz generation eligibility' }
   }
 }
 

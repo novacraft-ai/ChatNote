@@ -226,6 +226,22 @@
   background: #357ae8;
 }
 
+.authorize-drive-button {
+  padding: 8px 16px;
+  background: #4285f4;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+  margin-top: 12px;
+}
+
+.authorize-drive-button:hover {
+  background: #357ae8;
+}
+
 .pdf-history-list {
   display: flex;
   flex-direction: column;
@@ -275,7 +291,7 @@
   min-width: 0;
 }
 
-.pdf-history-item-header {
+.pdf-history-item-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -283,31 +299,13 @@
   margin-bottom: 6px;
 }
 
-.pdf-history-item-name {
+.pdf-history-display-name {
   font-weight: 600;
   font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.pdf-history-item-name span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pdf-history-name-spinner,
-.pdf-history-delete-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(66, 133, 244, 0.2);
-  border-top-color: #4285f4;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  flex: 1;
 }
 
 .pdf-history-delete {
@@ -321,6 +319,7 @@
   align-items: center;
   justify-content: center;
   transition: background 0.2s, color 0.2s;
+  flex-shrink: 0;
 }
 
 .pdf-history-delete:disabled {
@@ -336,14 +335,78 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
-.pdf-history-delete.confirm {
+.pdf-history-delete-confirm {
+  border: none;
   background: rgba(211, 47, 47, 0.15);
   color: #d32f2f;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.2s, color 0.2s;
+  flex-shrink: 0;
 }
 
-[data-theme='dark'] .pdf-history-delete.confirm {
+[data-theme='dark'] .pdf-history-delete-confirm {
   background: rgba(229, 115, 115, 0.2);
   color: #ff8a80;
+}
+
+.pdf-history-delete-confirm:hover {
+  background: rgba(211, 47, 47, 0.25);
+}
+
+[data-theme='dark'] .pdf-history-delete-confirm:hover {
+  background: rgba(229, 115, 115, 0.3);
+}
+
+.delete-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(66, 133, 244, 0.2);
+  border-top-color: #4285f4;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.pdf-history-title-placeholder {
+  display: flex;
+  align-items: center;
+  height: 18px;
+}
+
+.loading-dots {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.loading-dots div {
+  width: 4px;
+  height: 4px;
+  background: #999;
+  border-radius: 50%;
+  animation: pulse 1.4s ease-in-out infinite both;
+}
+
+.loading-dots div:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.loading-dots div:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes pulse {
+  0%, 80%, 100% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .pdf-history-item-original {
@@ -364,10 +427,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
 }
 
 .pdf-history-divider {
   color: #bbb;
+  flex-shrink: 0;
 }
 
 .pdf-history-item-meta {
@@ -402,3 +467,27 @@
   color: #64b5f6;
 }
 
+.pdf-history-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: #666;
+}
+
+[data-theme='dark'] .pdf-history-unavailable {
+  color: #999;
+}
+
+.pdf-history-unavailable h3 {
+  margin: 0 0 12px 0;
+  font-weight: 600;
+}
+
+.pdf-history-unavailable p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}

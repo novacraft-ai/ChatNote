@@ -1480,6 +1480,35 @@
   flex: 1;
 }
 
+/* Floating warning - appears inside messages container */
+.api-key-warning-floating {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background-color: #f59e0b;
+  color: #1f2937;
+  border-radius: 8px;
+  font-size: 13px;
+  margin: 8px;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  border: none;
+  flex-shrink: 0;
+  width: calc(100% - 16px); /* Account for margins */
+  position: sticky;
+  top: 8px;
+  z-index: 10;
+}
+
+.api-key-warning-floating .warning-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
 .api-key-warning {
   display: flex;
   flex-direction: column;
@@ -2648,6 +2677,109 @@
   border-top: none; /* Remove border-top for seamless connection */
   padding-top: 0; /* Remove top padding for seamless connection */
   box-shadow: none; /* Remove any shadow for seamless connection */
+}
+
+/* Free Trial Badge - Compact design above input */
+.free-trial-badge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin: 0 0 8px 0;
+  border-radius: 8px;
+  font-size: 12px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  transition: all 0.3s ease;
+}
+
+.theme-dark .free-trial-badge {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.free-trial-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.free-trial-content svg {
+  color: #3b82f6;
+  flex-shrink: 0;
+}
+
+.theme-dark .free-trial-content svg {
+  color: #60a5fa;
+}
+
+.trial-text {
+  font-weight: 600;
+  color: #3b82f6;
+  white-space: nowrap;
+}
+
+.theme-dark .trial-text {
+  color: #60a5fa;
+}
+
+.trial-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  background: rgba(59, 130, 246, 0.2);
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 11px;
+  color: #2563eb;
+  white-space: nowrap;
+}
+
+.theme-dark .trial-count-badge {
+  background: rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+}
+
+.trial-progress-mini {
+  width: 60px;
+  height: 4px;
+  background: rgba(59, 130, 246, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.theme-dark .trial-progress-mini {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.trial-fill-mini {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Warning state when trial is low */
+.free-trial-badge:has(.trial-count-badge:contains("0/")) {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.1) 100%);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* Mobile: Stack content vertically on very narrow screens */
+@media (max-width: 400px) {
+  .free-trial-badge {
+    flex-direction: column;
+    gap: 6px;
+    align-items: stretch;
+  }
+  
+  .trial-progress-mini {
+    width: 100%;
+  }
 }
 
 .input-wrapper {

@@ -8,6 +8,8 @@ export interface User {
   name?: string
   picture?: string
   role: 'admin' | 'user'
+  googleDriveEligible?: boolean
+  privacyConsent?: boolean
 }
 
 interface AuthContextType {
@@ -17,6 +19,7 @@ interface AuthContextType {
   logout: () => Promise<void>
   isAuthenticated: boolean
   isAdmin: boolean
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -55,11 +58,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.ok) {
         const data = await response.json()
-        setUser(data.user)
-        
+        setUser({ ...data.user, privacyConsent: data.user.privacyConsent }) // Include privacyConsent
+
         // Initialize analytics user if not already set
         if (!analytics.getUserId()) {
-          // No need to generate userId; handled by Google ID
+          analytics.setUserId(data.user.id)
         }
         
         shouldSetLoading = true
@@ -112,6 +115,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const refreshUser = async () => {
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      await fetchUser(token)
+    }
+  }
+
   const login = async (credential: string) => {
     try {
       const response = await fetch(`${BACKEND_URL}/api/auth/google`, {
@@ -129,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const data = await response.json()
       localStorage.setItem('auth_token', data.token)
-      setUser(data.user)
+      setUser({ ...data.user, privacyConsent: data.user.privacyConsent })
       
       // Use Google ID as analytics user_id
       if (data.user && data.user.id) {
@@ -145,26 +155,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const logout = async () => {
-    const token = localStorage.getItem('auth_token')
-
-    // Revoke Drive authorization on backend if token exists
-    if (token) {
-      try {
-        // Call backend to revoke Drive access
-        await fetch(`${BACKEND_URL}/api/drive/revoke`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        }).catch(() => {
-          // Ignore errors - user is logging out anyway
-        })
-      } catch (error) {
-        // Ignore errors during logout
-        console.warn('Error revoking Drive access during logout:', error)
-      }
-    }
-
+    // NOTE: We no longer revoke Drive authorization on logout to preserve user's Google Drive connection
+    // The Drive authorization tokens remain in the database and can be reused on next login
+    
     // Clear local storage
     localStorage.removeItem('auth_token')
 
@@ -189,7 +182,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         isAuthenticated: !!user,
-        isAdmin: user?.role === 'admin'
+        isAdmin: user?.role === 'admin',
+        refreshUser
       }}
     >
       {children}
