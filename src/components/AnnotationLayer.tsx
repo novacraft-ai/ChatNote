@@ -47,15 +47,70 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
   // Filter annotations for this page
   const pageAnnotations = annotations.filter((ann) => ann.pageNumber === pageNumber)
 
+  const [renderSize, setRenderSize] = useState<{ width: number; height: number; offsetLeft: number; offsetTop: number }>(() => ({
+    width: pageWidth * scale,
+    height: pageHeight * scale,
+    offsetLeft: 0,
+    offsetTop: 0,
+  }))
+
+  const updateRenderSize = useCallback(() => {
+    const wrapper = layerRef.current?.parentElement
+    if (!wrapper) return
+    const pageElement = wrapper.querySelector('.react-pdf__Page') as HTMLElement | null
+    if (!pageElement) return
+
+    const wrapperRect = wrapper.getBoundingClientRect()
+    const pageRect = pageElement.getBoundingClientRect()
+
+    if (!pageRect.width || !pageRect.height) return
+
+    setRenderSize(prev => {
+      const widthChanged = Math.abs(prev.width - pageRect.width) > 0.5
+      const heightChanged = Math.abs(prev.height - pageRect.height) > 0.5
+      const offsetChanged = Math.abs(prev.offsetLeft - (pageRect.left - wrapperRect.left)) > 0.5 ||
+        Math.abs(prev.offsetTop - (pageRect.top - wrapperRect.top)) > 0.5
+
+      if (widthChanged || heightChanged || offsetChanged) {
+        return {
+          width: pageRect.width,
+          height: pageRect.height,
+          offsetLeft: pageRect.left - wrapperRect.left,
+          offsetTop: pageRect.top - wrapperRect.top,
+        }
+      }
+      return prev
+    })
+  }, [])
+
+  useEffect(() => {
+    updateRenderSize()
+    const wrapper = layerRef.current?.parentElement
+    if (wrapper && typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => updateRenderSize())
+      observer.observe(wrapper)
+      return () => observer.disconnect()
+    }
+    const handleResize = () => updateRenderSize()
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [updateRenderSize, pageWidth, pageHeight, scale])
+
+  useEffect(() => {
+    updateRenderSize()
+  }, [scale, pageWidth, pageHeight, updateRenderSize])
+
   // Convert relative coordinates (0-1) to pixel coordinates
-  const toPixelX = (relX: number) => relX * pageWidth * scale
-  const toPixelY = (relY: number) => relY * pageHeight * scale
-  const toPixelWidth = (relWidth: number) => relWidth * pageWidth * scale
-  const toPixelHeight = (relHeight: number) => relHeight * pageHeight * scale
+  const toPixelX = (relX: number) => relX * renderSize.width
+  const toPixelY = (relY: number) => relY * renderSize.height
+  const toPixelWidth = (relWidth: number) => relWidth * renderSize.width
+  const toPixelHeight = (relHeight: number) => relHeight * renderSize.height
 
   // Convert pixel coordinates to relative coordinates (0-1)
-  const toRelativeX = (pixelX: number) => pixelX / (pageWidth * scale)
-  const toRelativeY = (pixelY: number) => pixelY / (pageHeight * scale)
+  const toRelativeX = (pixelX: number) => pixelX / renderSize.width
+  const toRelativeY = (pixelY: number) => pixelY / renderSize.height
 
   // Constrain position and size within page bounds
   const constrainToPage = useCallback(
@@ -589,13 +644,15 @@ const AnnotationLayer: React.FC<AnnotationLayerProps> = ({
     )
   }
 
-  const layerWidth = pageWidth * scale
-  const layerHeight = pageHeight * scale
+  const layerWidth = renderSize.width
+  const layerHeight = renderSize.height
   // Use pointer-events: none on the layer itself to allow text selection
   // Individual annotations will have pointer-events: auto
   const layerStyle: React.CSSProperties = {
     width: `${layerWidth}px`,
     height: `${layerHeight}px`,
+    left: `${renderSize.offsetLeft}px`,
+    top: `${renderSize.offsetTop}px`,
     pointerEvents: 'none', // Allow pointer events to pass through to PDF text layer
   }
 

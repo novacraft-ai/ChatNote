@@ -13,6 +13,7 @@ interface AnnotationToolbarProps {
   onImageUpload: (file: File) => void
   layout?: 'floating' | 'split'
   onToggleLayout?: () => void
+  showLayoutToggle?: boolean
   onClearAll?: () => void
   // PDF controls
   pageNumber?: number
@@ -47,6 +48,7 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   onImageUpload,
   layout,
   onToggleLayout,
+  showLayoutToggle = true,
   
   onClearAll,
   // PDF controls
@@ -73,6 +75,9 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isConfirmingClear, setIsConfirmingClear] = useState(false)
   const [showMobileTools, setShowMobileTools] = useState(false)
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth <= 720 : false
+  )
   const clearTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const highlightColors = [
@@ -108,12 +113,19 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
 
   // Ensure tools collapse when viewport grows beyond mobile breakpoint
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
     const handleResize = () => {
-      if (window.innerWidth > 720 && showMobileTools) {
+      const isMobile = window.innerWidth <= 720
+      setIsMobileViewport(isMobile)
+      if (!isMobile && showMobileTools) {
         setShowMobileTools(false)
       }
     }
 
+    handleResize()
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [showMobileTools])
@@ -162,39 +174,41 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
     <div className="annotation-toolbar">
 
       <div className="toolbar-left">
-        <button
-          type="button"
-          className={`toolbar-button mobile-tools-toggle ${showMobileTools ? 'active' : ''}`}
-          onClick={() => setShowMobileTools(prev => !prev)}
-          aria-pressed={showMobileTools}
-          aria-expanded={showMobileTools}
-          aria-label={showMobileTools ? 'Hide annotation tools' : 'Show annotation tools'}
-        >
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
+        {isMobileViewport && (
+          <button
+            type="button"
+            className={`toolbar-button mobile-tools-toggle ${showMobileTools ? 'active' : ''}`}
+            onClick={() => setShowMobileTools(prev => !prev)}
+            aria-pressed={showMobileTools}
+            aria-expanded={showMobileTools}
+            aria-label={showMobileTools ? 'Hide annotation tools' : 'Show annotation tools'}
           >
-            <path
-              d="M3 17.25V21H6.75L17.81 9.94L14.06 6.19L3 17.25Z"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M14.06 6.19L17.31 2.94C17.7 2.55 18.33 2.55 18.72 2.94L21.06 5.28C21.45 5.67 21.45 6.3 21.06 6.69L17.81 9.94"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M3 17.25V21H6.75L17.81 9.94L14.06 6.19L3 17.25Z"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M14.06 6.19L17.31 2.94C17.7 2.55 18.33 2.55 18.72 2.94L21.06 5.28C21.45 5.67 21.45 6.3 21.06 6.69L17.81 9.94"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        )}
         {/* Annotation tools */}
-        <div className={`toolbar-section annotation-tools ${showMobileTools ? 'mobile-visible' : ''}`}>
+        <div className={`toolbar-section annotation-tools ${isMobileViewport && showMobileTools ? 'mobile-visible' : ''}`}>
         <button
           className={`toolbar-button ${isHighlightActive ? 'active' : ''}`}
           onClick={onHighlightClick}
@@ -345,28 +359,32 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
 
       <div className="toolbar-right">
         {/* Actions */}
-        <div className="toolbar-section toolbar-actions">
-          <button
-            className="toolbar-button layout-toggle-button"
-            onClick={onToggleLayout}
-            title={layout === 'floating' ? 'Switch to split layout' : 'Switch to floating layout'}
-          >
-            {layout === 'floating' ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="7" height="7" />
-                <rect x="14" y="3" width="7" height="7" />
-                <rect x="14" y="14" width="7" height="7" />
-                <line x1="10" y1="3" x2="10" y2="10" />
-                <line x1="3" y1="10" x2="10" y2="10" />
-              </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
-            )}
-          </button>
-        </div>
+        {showLayoutToggle && onToggleLayout && (
+          <div className="toolbar-section toolbar-actions">
+            <button
+              className="toolbar-button layout-toggle-button"
+              onClick={onToggleLayout}
+              title={layout === 'floating' ? 'Switch to split layout' : 'Switch to floating layout'}
+            >
+              {layout === 'floating' ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" />
+                  <line x1="12" y1="3" x2="12" y2="21" />
+                </svg>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

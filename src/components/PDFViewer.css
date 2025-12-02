@@ -34,28 +34,109 @@
 
 
 .start-page-content {
-  position: relative;
-  display: block;
-  width: 100%;
-  min-height: 420px; /* provide enough room so top area stays visually centered */
-}
-
-.start-top {
   position: absolute;
-  left: 50%;
-  top: 10%;
-  transform: translateX(-50%);
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  justify-content: flex-start; /* Changed from center to flex-start */
+  width: 100%;
+  height: 100%;
+  padding-top: 10vh; /* Reduced from 15vh to move content up */
+  box-sizing: border-box;
+  padding: 10px 20px;
+  overflow: auto;
+}
+
+.start-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 600px;
+  margin: auto;
+  padding: 20px 40px 40px;
+  box-sizing: border-box;
   z-index: 1;
+  text-align: center;
+  position: relative;
+  top: -10vh; /* Increased negative value to move content up more */
+}
+
+/* Mobile-specific styles */
+@media (max-width: 800px) {
+  .start-page-content {
+    padding: 12vh 0 0 0 !important; /* Use viewport height for flexible positioning */
+    justify-content: flex-start !important;
+    align-items: center !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 100vh !important;
+  }
+
+  .start-top {
+    padding: 3vh 5vw 1vh !important; /* Use viewport units for flexible spacing */
+    margin: 0 !important;
+    position: relative !important;
+    top: 0 !important;
+    gap: 2vh !important; /* Use viewport height for gap */
+    width: 90% !important;
+    max-width: 400px !important;
+    box-sizing: border-box !important;
+  }
+  
+  .recent-pdf-suggestions {
+    position: relative !important;
+    top: 0 !important;
+    margin: 2vh 0 0 0 !important; /* Use viewport height for margin */
+    padding: 0 5vw !important; /* Use viewport width for padding */
+    width: 90% !important;
+    max-width: 400px !important;
+    box-sizing: border-box !important;
+  }
+  
+  .suggestions-title {
+    margin: 0 0 1.5vh 0 !important; /* Use viewport height for margin */
+    font-size: 14px !important;
+  }
+  
+  .suggestions-list {
+    gap: 1vh !important; /* Use viewport height for gap */
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  .modern-upload {
+    padding: 18px 36px !important; /* Same as desktop */
+    font-size: 20px !important; /* Same as desktop */
+    margin: 0 !important;
+    width: auto !important; /* Allow natural width */
+    max-width: none !important;
+    gap: 10px !important; /* Same as desktop */
+    border-radius: 32px !important; /* Same as desktop */
+  }
+  
+  .start-logo {
+    width: 96px !important; /* Same as desktop */
+    height: 96px !important;
+    margin: 0 0 1vh 0 !important;
+  }
+  
+  .start-logo img, 
+  .start-logo svg {
+    width: 84px !important; /* Same as desktop */
+    height: 84px !important;
+  }
 }
 
 
 .start-logo {
   /* Flush logo without a surrounding circle */
-  width: 96px;
+  width: 96px; /* Fixed size to prevent shrinking */
   height: 96px;
   margin: 0;
   border-radius: 0; /* remove circular background */
@@ -69,7 +150,7 @@
 
 /* Make the inner SVG or img slightly smaller than container */
 .start-logo img, .start-logo svg {
-  width: 84px;
+  width: 84px; /* Fixed size */
   height: 84px;
   display: block;
 }
@@ -78,20 +159,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 8px;
+  margin-bottom: clamp(4px, 1vh, 8px); /* Responsive margin */
   pointer-events: auto; /* make button clickable */
 }
 
 .modern-upload {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 18px 36px;
+  gap: 10px; /* Fixed gap to prevent shifting */
+  padding: 18px 36px; /* Fixed padding to prevent size changes */
   background: linear-gradient(90deg, #3969A8 0%, #152143 100%);
   color: #fff;
   border: none;
-  border-radius: 32px;
-  font-size: 20px;
+  border-radius: 32px; /* Fixed border radius */
+  font-size: 20px; /* Fixed font size */
   font-weight: 600;
   box-shadow: 0 4px 24px rgba(57,105,168,0.12);
   cursor: pointer;
@@ -139,26 +220,26 @@
 
 .recent-pdf-suggestions {
   width: 100%;
-  max-width: 520px;
+  max-width: clamp(320px, 40vw, 520px); /* Responsive max-width */
   display: flex;
   flex-direction: column;
   align-items: center;
   position: absolute;
   left: 50%;
-  top: calc(35% + 120px);
+  top: clamp(40vh, 45vh, calc(40% + 150px)); /* Increased top positioning to avoid overlap */
   transform: translateX(-50%);
 }
 .suggestions-title {
-  font-size: 16px;
+  font-size: clamp(14px, 2vw, 16px); /* Responsive font size */
   font-weight: 500;
   color: #3969A8;
-  margin-bottom: 10px;
+  margin-bottom: clamp(6px, 1.5vh, 10px); /* Responsive margin */
   letter-spacing: 0.5px;
 }
 .suggestions-list {
   display: flex;
   flex-direction: column;
-  gap: 8px; /* tightened spacing between suggestion cards */
+  gap: clamp(4px, 1vh, 8px); /* Responsive gap between cards */
   width: 100%;
 }
 /* Entrance animation for the whole list and staggered items */
@@ -216,19 +297,19 @@
   display: flex;
   align-items: center;
   justify-content: center; /* center icon + text horizontally */
-  gap: 10px; /* slightly larger gap for breathing room */
+  gap: clamp(8px, 2vw, 12px); /* Responsive gap */
   background: transparent;
   border: none;
-  border-radius: 10px;
-  padding: 10px 16px;
-  font-size: 14px;
+  border-radius: clamp(8px, 2vw, 12px); /* Responsive border radius */
+  padding: clamp(8px, 1.5vh, 12px) clamp(12px, 3vw, 20px); /* Responsive padding */
+  font-size: clamp(12px, 2vw, 14px); /* Responsive font size */
   font-weight: 600;
   color: var(--suggestion-text, #10203a);
   box-shadow: none;
   cursor: pointer;
   transition: background-color 0.16s ease, box-shadow 0.16s ease, transform 0.10s ease;
   width: auto; /* don't stretch full width so content can be centered */
-  min-width: 280px;
+  min-width: clamp(240px, 60%, 320px); /* Responsive min-width */
   text-align: center;
 }
 
@@ -338,10 +419,8 @@
 /* Navbar is 60px, chat area is at bottom ~90px + model selector bar height */
 /* Position it higher up, closer to the top */
 .pdf-viewer-empty.float-layout .upload-container {
-  /* Position it higher: navbar (60px) + smaller offset from top (about 1/3 of remaining space) */
-  top: calc(60px + (100vh - 60px - 250px) / 3);
-  left: 50%;
-  transform: translateX(-50%);
+  position: static;
+  width: 100%;
   /* Ensure transition only happens when layout class changes, not on initial render */
 }
 
@@ -517,12 +596,10 @@
 /* Page wrapper for scroll detection */
 .pdf-page-wrapper {
   margin-bottom: 12px; /* tighter spacing between pages */
+  position: relative;
+  width: 100%;
   display: flex;
   justify-content: center;
-  flex-shrink: 0;
-  min-width: fit-content;
-  position: relative;
-  width: 100%; /* allow wrapper to take full container width */
 }
 
 /* Ensure the rendered page canvas maintains quality and centers properly */

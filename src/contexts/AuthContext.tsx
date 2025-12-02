@@ -28,6 +28,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const hasTrackedPageView = () => {
+    if (typeof window === 'undefined') return false
+    try {
+      return sessionStorage.getItem('analytics_page_view_tracked') === 'true'
+    } catch (error) {
+      return false
+    }
+  }
+
+  const markPageViewTracked = () => {
+    if (typeof window === 'undefined') return
+    try {
+      sessionStorage.setItem('analytics_page_view_tracked', 'true')
+    } catch (error) {
+      // Ignore storage failures
+    }
+  }
+
   // Load user from token on mount
   useEffect(() => {
     const token = localStorage.getItem('auth_token')
@@ -60,9 +78,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await response.json()
         setUser({ ...data.user, privacyConsent: data.user.privacyConsent }) // Include privacyConsent
 
-        // Initialize analytics user if not already set
-        if (!analytics.getUserId()) {
+        if (data.user && data.user.id) {
           analytics.setUserId(data.user.id)
+          await analytics.upsertUser(data.user.id, data.user.email)
+          if (!hasTrackedPageView()) {
+            await analytics.trackPageView()
+            markPageViewTracked()
+          }
         }
         
         shouldSetLoading = true
@@ -146,6 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         analytics.setUserId(data.user.id)
         await analytics.upsertUser(data.user.id, data.user.email)
         await analytics.trackPageView()
+        markPageViewTracked()
       }
     } catch (error) {
       console.error('Login error:', error)
@@ -160,6 +183,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     // Clear local storage
     localStorage.removeItem('auth_token')
+    try {
+      sessionStorage.removeItem('analytics_page_view_tracked')
+    } catch (error) {
+      // Ignore storage failures
+    }
 
     // Clear PDF history cache
     try {

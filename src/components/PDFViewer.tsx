@@ -13,11 +13,23 @@ import { analytics } from '../services/analyticsService'
 import { getRecentPDFsFromCache, prefetchRecentPDFs } from '../utils/pdfHistoryCache'
 import chatNoteIcon from '../assets/chatnote-logo.svg'
 
+const clampToUnit = (value: number) => Math.max(0, Math.min(1, value))
+
+const getPageContentRect = (pageWrapper: HTMLElement | null): DOMRect | null => {
+  if (!pageWrapper) {
+    return null
+  }
+  const pageContent = pageWrapper.querySelector('.react-pdf__Page') as HTMLElement | null
+  const target = pageContent ?? pageWrapper
+  return target.getBoundingClientRect()
+}
+
 interface PDFViewerProps {
   file: File | null
   onFileUpload: (file: File) => void
   onTextSelection: (text: string, pageNumber?: number, textYPosition?: number) => void
   layout?: 'floating' | 'split'
+  showLayoutToggle?: boolean
   onPageChange?: (pageNumber: number) => void
   onTotalPagesChange?: (totalPages: number) => void
   showKnowledgeNotes?: boolean
@@ -42,6 +54,7 @@ function PDFViewer({
   onFileUpload,
   onTextSelection,
   layout = 'floating',
+  showLayoutToggle = true,
   onPageChange,
   onTotalPagesChange,
   showKnowledgeNotes = true,
@@ -885,36 +898,52 @@ function PDFViewer({
             color: COMMON_COLORS[0],
           }
 
-          // Use setAnnotations directly to avoid dependency issues
-          setAnnotations((prev) => [...prev, newAnnotation])
-          setSelectedAnnotationId(newAnnotation.id)
+          // Update annotations state and track the new annotation
+          setAnnotations((prev) => {
+            const updated = [...prev, newAnnotation];
+            // Track the annotation creation after state is updated
+            handleAnnotationCreate(newAnnotation).catch(error => {
+              console.warn('Failed to track text box annotation:', error);
+            });
+            return updated;
+          });
+          
+          setSelectedAnnotationId(newAnnotation.id);
           // Switch back to select mode after creating text box
-          setAnnotationMode('select')
+          setAnnotationMode('select');
         }
       }
     }, 100)
   }, [onTextSelection, annotationMode, pageNumber, numPages, scale, setSelectedAnnotationId, setAnnotationMode, setAnnotations])
 
   // Annotation handlers
-  const handleAnnotationCreate = useCallback((annotation: Annotation) => {
+  const handleAnnotationCreate = useCallback(async (annotation: Annotation) => {
     setAnnotations((prev) => [...prev, annotation])
     setSelectedAnnotationId(annotation.id)
     
-    // Track annotation addition
-    let toolName: 'highlight' | 'text' | 'image' = 'text'
-    if (annotation.type === 'highlight') {
-      toolName = 'highlight'
-    } else if (annotation.type === 'image') {
-      toolName = 'image'
-    } else if (annotation.type === 'textbox') {
-      toolName = 'text'
-    }
-    analytics.trackAnnotationAdded(toolName)
-    
-    // Update document to mark it has annotations
-    const currentDocId = analytics.getCurrentDocumentId()
-    if (currentDocId) {
-      analytics.updateDocument(currentDocId, { has_annotations: true })
+    // Track annotation addition based on type
+    try {
+      let toolName: 'highlight' | 'text' | 'image' = 'text';
+      
+      if (annotation.type === 'highlight') {
+        toolName = 'highlight';
+      } else if (annotation.type === 'image') {
+        toolName = 'image';
+      } else if (annotation.type === 'textbox') {
+        toolName = 'text';
+      }
+      
+      // Track the annotation
+      await analytics.trackAnnotationAdded(toolName);
+      
+      // Update document to mark it has annotations
+      const currentDocId = analytics.getCurrentDocumentId();
+      if (currentDocId) {
+        await analytics.updateDocument(currentDocId, { has_annotations: true });
+      }
+    } catch (error) {
+      console.warn('Failed to track annotation creation:', error);
+      // Continue execution even if tracking fails
     }
   }, [])
 
@@ -1105,8 +1134,8 @@ function PDFViewer({
     [file, pageNumber, handleAnnotationCreate, setAnnotationMode]
   )
 
-  //Handle highlight button click - toggle highlight on/off for selected text
-  const handleHighlightClick = useCallback(() => {
+  // Handle highlight button click - toggle highlight on/off for selected text
+  const handleHighlightClick = useCallback(async () => {
     if (!currentSelection) return // Do nothing if no text selected
 
     const { pageNumber, rect, pageElement } = currentSelection
@@ -1119,33 +1148,49 @@ function PDFViewer({
       setShowColorPicker(false)
     } else {
       // Add new highlight and show color picker
-      const pageWidth = pageElement.offsetWidth
-      const pageHeight = pageElement.offsetHeight
-      const pageRect = pageElement.getBoundingClientRect()
+      const rectReference = getPageContentRect(pageElement)
+      const baselineRect = rectReference ?? pageElement.getBoundingClientRect()
+      const pixelWidth = baselineRect.width || pageElement.offsetWidth
+      const pixelHeight = baselineRect.height || pageElement.offsetHeight
 
       // Calculate relative coordinates (0-1)
-      const relX = (rect.left - pageRect.left) / pageWidth
-      const relY = (rect.top - pageRect.top) / pageHeight
-      const relWidth = rect.width / pageWidth
-      const relHeight = rect.height / pageHeight
+      const relX = clampToUnit((rect.left - baselineRect.left) / pixelWidth)
+      const relY = clampToUnit((rect.top - baselineRect.top) / pixelHeight)
+      const relWidth = clampToUnit(rect.width / pixelWidth)
+      const relHeight = clampToUnit(rect.height / pixelHeight)
 
       // Create new highlight annotation
       const newHighlight: HighlightAnnotation = {
         id: crypto.randomUUID(),
         type: 'highlight',
         pageNumber,
-        x: Math.max(0, Math.min(1, relX)),
-        y: Math.max(0, Math.min(1, relY)),
-        width: Math.max(0.01, Math.min(1, relWidth)),
-        height: Math.max(0.01, Math.min(1, relHeight)),
+        x: relX,
+        y: relY,
+        width: Math.max(0.01, relWidth),
+        height: Math.max(0.01, relHeight),
         rotation: 0,
         color: highlightColor,
         opacity: 0.4
       }
 
+      // Update UI immediately
       setAnnotations(prev => [...prev, newHighlight])
       setHighlightedSelectionId(newHighlight.id)
       setShowColorPicker(true)
+
+      // Track the highlight immediately
+      try {
+        await analytics.trackAnnotationAdded('highlight')
+        
+        // Update document to mark it has annotations
+        const currentDocId = analytics.getCurrentDocumentId()
+        if (currentDocId) {
+          await analytics.updateDocument(currentDocId, { has_annotations: true })
+        }
+      } catch (error) {
+        console.warn('Failed to track highlight annotation:', error)
+        // Continue execution even if tracking fails
+      }
     }
   }, [currentSelection, highlightedSelectionId, highlightColor])
 
@@ -1442,6 +1487,7 @@ function PDFViewer({
         onImageUpload={handleImageUpload}
         
         onToggleLayout={onToggleLayout}
+        showLayoutToggle={showLayoutToggle}
         onClearAll={() => {
           setAnnotations([])
           setSelectedAnnotationId(null)

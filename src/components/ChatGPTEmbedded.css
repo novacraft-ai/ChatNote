@@ -1,3 +1,12 @@
+.floating-chat .model-selector-bar .model-mode-toggle-container,
+.floating-chat .model-selector-bar .header-actions,
+.floating-chat .model-selector-bar .image-upload-button,
+.split-chat .model-selector-bar .model-mode-toggle-container,
+.split-chat .model-selector-bar .header-actions {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
 .chatgpt-wrapper {
   position: relative;
   display: flex;
@@ -374,32 +383,68 @@
   position: relative;
 }
 
+@media (min-width: 769px) {
+  .floating-chat .model-selector-bar.theme-light,
+  .floating-chat .model-selector-bar.theme-dark {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+
+  .floating-chat .model-selector-bar .model-mode-toggle-container,
+  .floating-chat .model-selector-bar .header-actions,
+  .floating-chat .model-selector-bar .image-upload-button {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+
+  .floating-chat .model-selector-bar .header-actions button,
+  .floating-chat .model-selector-bar .header-actions .notes-toggle-button,
+  .floating-chat .model-selector-bar .header-actions .collapse-button {
+    background: rgba(0, 0, 0, 0.38);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+}
+
 @media (max-width: 768px) {
   .floating-chat .model-selector-bar {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
-    border-radius: 16px;
+    gap: 16px;
+    border-radius: 18px;
+    padding: 14px;
+    background: rgba(17, 25, 40, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
   }
 
   .floating-chat .model-selector-wrapper {
     width: 100%;
     flex-direction: column;
     align-items: stretch;
-    gap: 10px;
+    gap: 12px;
   }
 
   .floating-chat .model-mode-toggle-container {
     width: 100%;
     justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .floating-chat .header-actions {
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+    gap: 10px;
     align-self: stretch;
+    padding: 10px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   .floating-chat .header-actions button,
@@ -407,9 +452,10 @@
   .floating-chat .header-actions .collapse-button {
     width: 100%;
     justify-content: center;
-    padding: 6px;
-    min-height: 40px;
-    height: 40px;
+    padding: 8px;
+    min-height: 44px;
+    height: 44px;
+    border-radius: 14px;
   }
 
   .floating-chat .header-actions svg {
@@ -418,9 +464,10 @@
 
   .floating-chat .image-upload-button {
     width: 100%;
-    min-height: 40px;
-    height: 40px;
+    min-height: 44px;
+    height: 44px;
     justify-content: center;
+    border-radius: 14px;
   }
 
   .floating-chat .chatgpt-inner {
@@ -430,11 +477,10 @@
   .floating-chat .chatgpt-messages,
   .floating-chat .chatgpt-input-container,
   .floating-chat .pdf-context-toggle-container,
-  .floating-chat .model-selector-bar,
   .floating-chat .model-selector-wrapper {
     width: 100%;
-    padding-left: 20px;
-    padding-right: 20px;
+    padding-left: 0;
+    padding-right: 0;
     box-sizing: border-box;
   }
 
@@ -461,6 +507,130 @@
 .theme-dark .model-selector-bar {
   background: rgba(0, 0, 0, 0.4);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.model-selector-bar.theme-light {
+  background: rgba(248, 250, 252, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+.model-selector-bar.theme-dark {
+  background: rgba(17, 25, 40, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  color: #f8fafc;
+}
+
+.floating-chat .model-selector-bar.theme-light {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  color: #f8fafc;
+}
+
+.floating-chat .model-selector-bar.theme-dark {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  color: #ececf1;
+}
+
+.model-selector-bar.theme-light .model-mode-toggle-container,
+.model-selector-bar.theme-light .header-actions,
+.model-selector-bar.theme-light .image-upload-button {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+}
+
+.model-selector-bar.theme-dark .model-mode-toggle-container,
+.model-selector-bar.theme-dark .header-actions,
+.model-selector-bar.theme-dark .image-upload-button {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+.floating-chat .model-selector-bar.theme-light .model-mode-toggle-container,
+.floating-chat .model-selector-bar.theme-light .header-actions,
+.floating-chat .model-selector-bar.theme-light .image-upload-button {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #f8fafc;
+}
+
+.floating-chat .model-selector-bar.theme-dark .model-mode-toggle-container,
+.floating-chat .model-selector-bar.theme-dark .header-actions,
+.floating-chat .model-selector-bar.theme-dark .image-upload-button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #ececf1;
+}
+
+.model-selector-bar.theme-light .header-actions button,
+.model-selector-bar.theme-light .header-actions .notes-toggle-button,
+.model-selector-bar.theme-light .header-actions .collapse-button,
+.model-selector-bar.theme-light .image-upload-button {
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+.model-selector-bar.theme-dark .header-actions button,
+.model-selector-bar.theme-dark .header-actions .notes-toggle-button,
+.model-selector-bar.theme-dark .header-actions .collapse-button,
+.model-selector-bar.theme-dark .image-upload-button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+}
+
+.model-selector-bar.theme-light .header-actions button:hover,
+.model-selector-bar.theme-light .header-actions .notes-toggle-button:hover,
+.model-selector-bar.theme-light .header-actions .collapse-button:hover,
+.model-selector-bar.theme-light .image-upload-button:hover {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.model-selector-bar.theme-dark .header-actions button:hover,
+.model-selector-bar.theme-dark .header-actions .notes-toggle-button:hover,
+.model-selector-bar.theme-dark .header-actions .collapse-button:hover,
+.model-selector-bar.theme-dark .image-upload-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.floating-chat .model-selector-bar.theme-light .header-actions button,
+.floating-chat .model-selector-bar.theme-light .header-actions .notes-toggle-button,
+.floating-chat .model-selector-bar.theme-light .header-actions .collapse-button,
+.floating-chat .model-selector-bar.theme-light .image-upload-button {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #f8fafc;
+}
+
+.floating-chat .model-selector-bar.theme-light .header-actions button:hover,
+.floating-chat .model-selector-bar.theme-light .header-actions .notes-toggle-button:hover,
+.floating-chat .model-selector-bar.theme-light .header-actions .collapse-button:hover,
+.floating-chat .model-selector-bar.theme-light .image-upload-button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.floating-chat .model-selector-bar.theme-dark .header-actions button,
+.floating-chat .model-selector-bar.theme-dark .header-actions .notes-toggle-button,
+.floating-chat .model-selector-bar.theme-dark .header-actions .collapse-button,
+.floating-chat .model-selector-bar.theme-dark .image-upload-button {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #ececf1;
+}
+
+.floating-chat .model-selector-bar.theme-dark .header-actions button:hover,
+.floating-chat .model-selector-bar.theme-dark .header-actions .notes-toggle-button:hover,
+.floating-chat .model-selector-bar.theme-dark .header-actions .collapse-button:hover,
+.floating-chat .model-selector-bar.theme-dark .image-upload-button:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .header-actions {

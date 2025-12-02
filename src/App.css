@@ -133,8 +133,8 @@
 .chat-container.split-chat {
   position: relative;
   width: var(--chat-width, 500px);
-  min-width: 350px;
-  max-width: 800px;
+  min-width: var(--chat-min-width, 350px);
+  max-width: var(--chat-max-width, 800px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;

@@ -27,19 +27,11 @@
   margin-right: 4px;
 }
 
-[data-theme='dark'] .toolbar-section.textbox-controls-section {
-  /* no separator in dark theme for textbox controls */
-}
-
 .toolbar-section.annotation-tools {
   padding-right: 12px;
   margin-right: 4px;
   display: flex;
   gap: 8px;
-}
-
-[data-theme='dark'] .toolbar-section.annotation-tools {
-  /* no separator here in dark theme */
 }
 
 .toolbar-section.pdf-navigation {
@@ -58,14 +50,6 @@
   margin-left: 4px;
   margin-right: 4px;
   padding-right: 12px;
-}
-
-[data-theme='dark'] .toolbar-section.zoom-controls {
-  /* no separator here in dark theme */
-}
-
-.toolbar-section.toolbar-actions {
-  /* keep as normal section inside right group */
 }
 
 /* Layout groups: left/center/right */
@@ -138,6 +122,16 @@
 
 .toolbar-button svg {
   flex-shrink: 0;
+}
+
+.mobile-tools-toggle {
+  display: none;
+}
+
+@media (min-width: 721px) {
+  .mobile-tools-toggle {
+    display: none !important;
+  }
 }
 
 [data-theme='dark'] .toolbar-button {
@@ -411,10 +405,6 @@
   border-color: #4285f4;
   border-width: 3px;
   transform: scale(1.15);
-}
-
-.clear-button {
-  /* Default state - normal button */
 }
 
 /* Keep button expanded when in confirmation mode */

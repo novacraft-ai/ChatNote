@@ -7,6 +7,7 @@ interface ResizableDividerProps {
   minWidth: number
   maxWidth: number
   modelMode: 'auto' | 'reasoning' | 'advanced'
+  onDragStateChange?: (isDragging: boolean) => void
 }
 
 const ResizableDivider: React.FC<ResizableDividerProps> = ({
@@ -15,6 +16,7 @@ const ResizableDivider: React.FC<ResizableDividerProps> = ({
   minWidth,
   maxWidth,
   modelMode,
+  onDragStateChange,
 }) => {
   const [isDragging, setIsDragging] = useState(false)
   const [isHovering, setIsHovering] = useState(false)
@@ -38,6 +40,7 @@ const ResizableDivider: React.FC<ResizableDividerProps> = ({
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault()
     setIsDragging(true)
+    onDragStateChange?.(true)
     startXRef.current = e.clientX
     startWidthRef.current = initialWidth
     document.body.style.cursor = 'ew-resize'
@@ -56,6 +59,7 @@ const ResizableDivider: React.FC<ResizableDividerProps> = ({
 
     const handleMouseUp = () => {
       setIsDragging(false)
+      onDragStateChange?.(false)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
@@ -67,7 +71,7 @@ const ResizableDivider: React.FC<ResizableDividerProps> = ({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isDragging, minWidth, maxWidth, onResize])
+  }, [isDragging, minWidth, maxWidth, onResize, onDragStateChange])
 
   return (
     <div

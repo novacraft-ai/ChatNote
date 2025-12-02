@@ -69,6 +69,16 @@ function AppContent() {
     const saved = localStorage.getItem('chatWidth')
     return saved ? parseInt(saved, 10) : 500
   })
+  const [isDividerDragging, setIsDividerDragging] = useState(false)
+  const [chatWidthLimits, setChatWidthLimits] = useState<{ min: number; max: number }>(() => {
+    if (typeof window !== 'undefined') {
+      const viewportWidth = window.innerWidth
+      const min = Math.max(150, Math.round(viewportWidth * 0.1))
+      const max = Math.max(min + 100, Math.round(viewportWidth * 0.9))
+      return { min, max }
+    }
+    return { min: 350, max: 800 }
+  })
 
   const hasCurrentPdfUnsavedChanges = useMemo(() => {
     if (!currentPdfId || !isAuthenticated) {
@@ -125,7 +135,29 @@ function AppContent() {
 
   // Handler for chat width resize from ResizableDivider
   const handleChatWidthResize = useCallback((width: number) => {
-    setChatWidth(width)
+    setChatWidth(Math.min(Math.max(width, chatWidthLimits.min), chatWidthLimits.max))
+  }, [chatWidthLimits])
+
+  const handleDividerDragStateChange = useCallback((isDragging: boolean) => {
+    setIsDividerDragging(isDragging)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const updateChatWidthLimits = () => {
+      const viewportWidth = window.innerWidth
+      const min = Math.max(150, Math.round(viewportWidth * 0.1))
+      const max = Math.max(min + 100, Math.round(viewportWidth * 0.9))
+      setChatWidthLimits({ min, max })
+      setChatWidth(prev => Math.min(Math.max(prev, min), max))
+    }
+
+    updateChatWidthLimits()
+    window.addEventListener('resize', updateChatWidthLimits)
+    return () => window.removeEventListener('resize', updateChatWidthLimits)
   }, [])
 
   // Auto-authorize Drive when user logs in
@@ -941,6 +973,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
               onFileUpload={handlePdfUpload}
               onTextSelection={handleTextSelection}
               layout={chatLayout}
+              showLayoutToggle={currentInteractionMode === 'guide-me-learn'}
               onPageChange={setCurrentPageNumber}
               onTotalPagesChange={(total) => {
                 if ((window as any).__pdfTotalPages !== total) {
@@ -992,14 +1025,21 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
             modelMode={modelMode}
             onResize={handleChatWidthResize}
             initialWidth={chatWidth}
-            minWidth={350}
-            maxWidth={800}
+            minWidth={chatWidthLimits.min}
+            maxWidth={chatWidthLimits.max}
+            onDragStateChange={handleDividerDragStateChange}
           />
         )}
         {isChatVisible && pdfFile && (
           <div 
-            className={`chat-container ${chatLayout === 'floating' ? 'floating-chat' : 'split-chat'} ${showKnowledgeNotes ? 'knowledge-notes-open' : ''}`}
-            style={chatLayout === 'split' ? { '--chat-width': `${chatWidth}px` } as React.CSSProperties : undefined}
+            className={`chat-container ${chatLayout === 'floating' ? 'floating-chat' : 'split-chat'} ${showKnowledgeNotes ? 'knowledge-notes-open' : ''} ${isDividerDragging ? 'divider-dragging' : ''}`}
+            style={chatLayout === 'split'
+              ? {
+                  '--chat-width': `${chatWidth}px`,
+                  '--chat-min-width': `${chatWidthLimits.min}px`,
+                  '--chat-max-width': `${chatWidthLimits.max}px`,
+                } as React.CSSProperties
+              : undefined}
           >
             <ChatGPTEmbedded
               selectedText={selectedText}
