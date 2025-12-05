@@ -1,4 +1,4 @@
-import { supabase, UserEvent } from './supabaseClient';
+import { BACKEND_URL } from '../config';
 import { EventName, EventProperties } from '../types/analytics';
 
 class AnalyticsService {
@@ -90,33 +90,29 @@ class AnalyticsService {
     properties: EventProperties,
     documentId?: string
   ): Promise<void> {
-    // Skip if Supabase is not configured
-    if (!supabase) {
-      console.warn('[Analytics] Tracking disabled: Supabase not configured');
-      return;
-    }
-
-    // Use userId set from AuthContext (Google ID)
+    // Get userId from AuthContext (Google ID)
     const userId = this.getUserId();
     if (!userId) {
-      console.warn('[Analytics] No user ID set for event tracking.');
       return;
     }
 
     try {
-      const event: UserEvent = {
-        session_id: this.sessionId,
-        user_id: userId,
-        document_id: documentId || this.currentDocumentId || null,
-        event_name: eventName,
-        properties: properties as Record<string, any>,
-      };
+      const response = await fetch(`${BACKEND_URL}/api/analytics/event`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+        body: JSON.stringify({
+          eventName,
+          properties: { ...properties, user_id: userId },
+          documentId,
+          sessionId: this.sessionId
+        })
+      });
 
-      const { error } = await supabase
-        .from('user_events')
-        .insert([event]);
-
-      if (error) {
+      if (!response.ok) {
+        const error = await response.json();
         console.error('[Analytics] Failed to track event:', eventName, error);
       }
     } catch (error) {
@@ -286,55 +282,20 @@ class AnalyticsService {
    * Create or update user in database
    */
   async upsertUser(userId: string, email: string): Promise<void> {
-    if (!supabase) {
-      return;
-    }
-
     try {
-      // First check if user exists by user_id
-      const { data: existingUser, error: selectError } = await supabase
-        .from('users')
-        .select('user_id, email')
-        .eq('user_id', userId)
-        .single();
+      const response = await fetch(`${BACKEND_URL}/api/analytics/user`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+        body: JSON.stringify({ userId, email })
+      });
 
-      if (selectError && selectError.code !== 'PGRST116') {
-        // PGRST116 = not found, which is fine
-        console.error('Error checking existing user:', selectError);
-        return;
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('Failed to upsert user:', error);
       }
-
-      if (existingUser) {
-        // User exists, update email if different
-        if (existingUser.email !== email) {
-          const { error: updateError } = await supabase
-            .from('users')
-            .update({ email })
-            .eq('user_id', userId);
-
-          if (updateError) {
-            console.error('Failed to update user email:', updateError);
-          }
-        }
-      } else {
-        // User doesn't exist, insert new record
-        const { error: insertError } = await supabase
-          .from('users')
-          .insert({
-            user_id: userId,
-            email: email,
-          });
-
-        if (insertError) {
-          // Ignore duplicate email errors - user might have multiple sessions
-          if (insertError.code !== '23505') {
-            console.error('Failed to insert user:', insertError);
-          }
-        }
-      }
-
-      // For new users, update first_login_at separately if needed
-      // Or handle this with a database trigger: ON INSERT SET first_login_at = now()
     } catch (error) {
       console.error('Error upserting user:', error);
     }
@@ -347,29 +308,23 @@ class AnalyticsService {
     documentId: string,
     fileSizeMb: number
   ): Promise<void> {
-    if (!supabase) return;
-
     const userId = this.getUserId();
     if (!userId) {
-      console.warn('Cannot create document: No user ID');
       return;
     }
 
     try {
-      const { error } = await supabase
-        .from('documents')
-        .insert([
-          {
-            document_id: documentId,
-            owner_user_id: userId,
-            file_size_mb: fileSizeMb,
-            has_annotations: false,
-            has_notes: false,
-            has_export: false,
-          },
-        ]);
+      const response = await fetch(`${BACKEND_URL}/api/analytics/document`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+        body: JSON.stringify({ documentId, fileSizeMb })
+      });
 
-      if (error) {
+      if (!response.ok) {
+        const error = await response.json();
         console.error('Failed to create document:', error);
       }
     } catch (error) {
@@ -388,15 +343,18 @@ class AnalyticsService {
       has_export?: boolean;
     }
   ): Promise<void> {
-    if (!supabase) return;
-
     try {
-      const { error } = await supabase
-        .from('documents')
-        .update(updates)
-        .eq('document_id', documentId);
+      const response = await fetch(`${BACKEND_URL}/api/analytics/document/${documentId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+        body: JSON.stringify(updates)
+      });
 
-      if (error) {
+      if (!response.ok) {
+        const error = await response.json();
         console.error('Failed to update document:', error);
       }
     } catch (error) {

@@ -20,6 +20,7 @@ import {
   deleteFilesFromDrive,
   removePdfFromIndex
 } from './googleDriveService.js'
+import { supabase } from './supabaseClient.js'
 
 dotenv.config()
 
@@ -434,17 +435,14 @@ app.get('/api/user/api-key/status', authenticateToken, async (req, res) => {
     const apiKeyDoc = await db.collection('apiKeys').findOne({
       userId: new ObjectId(req.user.id)
     })
-
-    // Get user's free trial information
+    
     const user = await db.collection('users').findOne({ _id: new ObjectId(req.user.id) })
     
-    // Check if user is eligible for free trial
+    // Get free trial information
     const freeTrialEnabled = user?.freeTrialEnabled || false
     const freeTrialUsed = user?.freeTrialUsed || 0
     const freeTrialLimit = user?.freeTrialLimit || 10
-    const canUseFreeTrialRemaining = freeTrialEnabled ? Math.max(0, freeTrialLimit - freeTrialUsed) : 0
-    
-    // Get quiz generation information for free trial users
+    const canUseFreeTrialRemaining = freeTrialLimit - freeTrialUsed
     const freeTrialQuizGenerated = user?.freeTrialQuizGenerated || 0
     const freeTrialQuizLimit = user?.freeTrialQuizLimit || 1
     
@@ -1682,6 +1680,193 @@ app.post('/api/quiz/generate', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Quiz generation check error:', error);
     res.status(500).json({ error: 'Failed to check quiz generation eligibility' });
+  }
+});
+
+// Analytics API endpoints
+
+// Upsert user in Supabase
+app.post('/api/analytics/user', authenticateToken, async (req, res) => {
+  try {
+    const { userId, email } = req.body;
+    
+    // Verify the user is updating their own record
+    if (req.user.id !== userId) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    // First check if user exists by user_id
+    const { data: existingUser, error: selectError } = await supabase
+      .from('users')
+      .select('user_id, email')
+      .eq('user_id', userId)
+      .single();
+
+    if (selectError && selectError.code !== 'PGRST116') {
+      // PGRST116 = not found, which is fine
+      console.error('Error checking existing user:', selectError);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (existingUser) {
+      // User exists, update email if different and always update updated_at
+      const updateData = { updated_at: new Date().toISOString() };
+      
+      if (existingUser.email !== email) {
+        updateData.email = email;
+      }
+      
+      const { error: updateError } = await supabase
+        .from('users')
+        .update(updateData)
+        .eq('user_id', userId);
+
+      if (updateError) {
+        console.error('Failed to update user:', updateError);
+        return res.status(500).json({ error: 'Failed to update user' });
+      }
+    } else {
+      // User doesn't exist, insert new record
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert({
+          user_id: userId,
+          email: email,
+        });
+
+      if (insertError) {
+        console.error('Failed to insert user:', insertError);
+        return res.status(500).json({ error: 'Failed to create user' });
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error upserting user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Track event in Supabase
+app.post('/api/analytics/event', authenticateToken, async (req, res) => {
+  try {
+    const { eventName, properties, documentId, sessionId } = req.body;
+    
+    // Verify the user is tracking their own events
+    if (req.user.id !== properties.user_id) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    const event = {
+      session_id: sessionId,
+      user_id: req.user.id,
+      document_id: documentId || null,
+      event_name: eventName,
+      properties: properties,
+    };
+
+    const { error } = await supabase
+      .from('user_events')
+      .insert([event]);
+
+    if (error) {
+      console.error('Failed to track event:', eventName, error);
+      return res.status(500).json({ error: 'Failed to track event' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error tracking event:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create document in Supabase
+app.post('/api/analytics/document', authenticateToken, async (req, res) => {
+  try {
+    const { documentId, fileSizeMb } = req.body;
+    
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    const { error } = await supabase
+      .from('documents')
+      .insert([
+        {
+          document_id: documentId,
+          owner_user_id: req.user.id,
+          file_size_mb: fileSizeMb,
+          has_annotations: false,
+          has_notes: false,
+          has_export: false,
+        },
+      ]);
+
+    if (error) {
+      console.error('Failed to create document:', error);
+      return res.status(500).json({ error: 'Failed to create document' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error creating document:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update document in Supabase
+app.patch('/api/analytics/document/:documentId', authenticateToken, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { has_annotations, has_notes, has_export } = req.body;
+    
+    if (!supabase) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+
+    // First verify the user owns the document
+    const { data: document, error: fetchError } = await supabase
+      .from('documents')
+      .select('owner_user_id')
+      .eq('document_id', documentId)
+      .single();
+
+    if (fetchError || !document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    if (document.owner_user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const updates = {};
+    if (has_annotations !== undefined) updates.has_annotations = has_annotations;
+    if (has_notes !== undefined) updates.has_notes = has_notes;
+    if (has_export !== undefined) updates.has_export = has_export;
+
+    const { error: updateError } = await supabase
+      .from('documents')
+      .update(updates)
+      .eq('document_id', documentId);
+
+    if (updateError) {
+      console.error('Failed to update document:', updateError);
+      return res.status(500).json({ error: 'Failed to update document' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating document:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
