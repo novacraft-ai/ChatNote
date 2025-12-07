@@ -24,6 +24,12 @@ import { supabase } from './supabaseClient.js'
 
 dotenv.config()
 
+if (!process.env.FREE_TRIAL_GROQ_API_KEY) {
+  console.warn('[config] FREE_TRIAL_GROQ_API_KEY is missing or empty. Free trial chat requests will fail.')
+} else {
+  console.log('[config] FREE_TRIAL_GROQ_API_KEY detected.')
+}
+
 const app = express()
 const PORT = process.env.PORT || 3000
 
