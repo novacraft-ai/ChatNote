@@ -1,6 +1,6 @@
 // Event type definitions based on your requirements
 
-export type AIMode = 'auto' | 'reasoning' | 'advanced';
+export type AIMode = 'auto' | 'quick' | 'thinking';
 export type UIMode = 'floating' | 'split';
 export type NoteViewMode = 'following' | 'stack';
 export type AnnotationTool = 'highlight' | 'text' | 'image';

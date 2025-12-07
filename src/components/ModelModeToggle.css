@@ -81,36 +81,36 @@
   border-color: rgba(59, 130, 246, 0.2);
 }
 
-.model-mode-toggle.reasoning {
+.model-mode-toggle.thinking {
   background: #8b5cf6;
 }
 
-.theme-light .model-mode-toggle.reasoning {
+.theme-light .model-mode-toggle.thinking {
   background: #8b5cf6;
 }
 
-.theme-dark .model-mode-toggle.reasoning {
+.theme-dark .model-mode-toggle.thinking {
   background: #8b5cf6;
 }
 
-.model-mode-toggle.reasoning .model-mode-toggle-button {
+.model-mode-toggle.thinking .model-mode-toggle-button {
   border-color: rgba(139, 92, 246, 0.2);
 }
 
-.model-mode-toggle.advanced {
-  background: #10a37f;
+.model-mode-toggle.quick {
+  background: #10b981;
 }
 
-.theme-light .model-mode-toggle.advanced {
-  background: #10a37f;
+.theme-light .model-mode-toggle.quick {
+  background: #10b981;
 }
 
-.theme-dark .model-mode-toggle.advanced {
-  background: #10a37f;
+.theme-dark .model-mode-toggle.quick {
+  background: #10b981;
 }
 
-.model-mode-toggle.advanced .model-mode-toggle-button {
-  border-color: rgba(16, 163, 127, 0.2);
+.model-mode-toggle.quick .model-mode-toggle-button {
+  border-color: rgba(16, 185, 129, 0.2);
 }
 
 .model-mode-toggle-label {

@@ -97,7 +97,7 @@ class AnalyticsService {
     }
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/analytics/event`, {
+      const response = await fetch(`${BACKEND_URL}/api/internal/logs/event`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -148,7 +148,7 @@ class AnalyticsService {
    * Track query submission
    */
   async trackQuerySubmitted(
-    aiMode: 'auto' | 'reasoning' | 'advanced',
+    aiMode: 'auto' | 'quick' | 'thinking',
     uiMode: 'floating' | 'split',
     isContextual: boolean
   ): Promise<void> {
@@ -163,7 +163,7 @@ class AnalyticsService {
    * Track AI response completion
    */
   async trackAIResponse(
-    aiMode: 'auto' | 'reasoning' | 'advanced',
+    aiMode: 'auto' | 'quick' | 'thinking',
     responseTimeMs: number
   ): Promise<void> {
     await this.trackEvent('ai_response_rendered', {
@@ -283,7 +283,7 @@ class AnalyticsService {
    */
   async upsertUser(userId: string, email: string): Promise<void> {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/analytics/user`, {
+      const response = await fetch(`${BACKEND_URL}/api/internal/logs/user`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -314,7 +314,7 @@ class AnalyticsService {
     }
 
     try {
-      const response = await fetch(`${BACKEND_URL}/api/analytics/document`, {
+      const response = await fetch(`${BACKEND_URL}/api/internal/logs/document`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -344,7 +344,7 @@ class AnalyticsService {
     }
   ): Promise<void> {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/analytics/document/${documentId}`, {
+      const response = await fetch(`${BACKEND_URL}/api/internal/logs/document/${documentId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

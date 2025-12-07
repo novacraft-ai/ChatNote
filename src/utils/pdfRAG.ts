@@ -193,7 +193,6 @@ export async function searchPDFChunks(
 ): Promise<Array<{ chunk: PDFChunk; score: number }>> {
   const index = pdfIndices.get(pdfId)
   if (!index) {
-    console.warn('[RAG] PDF not indexed')
     return []
   }
   
@@ -225,7 +224,6 @@ export async function getRAGContext(
   
   // If not indexed yet, index it now (shouldn't happen, but fallback)
   if (!pdfIndices.has(pdfId)) {
-    console.warn('[RAG] PDF not indexed yet, indexing now...')
     await indexPDF(pdfText, undefined)
   }
   

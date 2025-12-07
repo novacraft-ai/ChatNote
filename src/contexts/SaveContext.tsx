@@ -1,8 +1,12 @@
 import { createContext, useContext, ReactNode } from 'react'
 
+export interface SaveOptions {
+  keepOverlay?: boolean
+}
+
 interface SaveContextType {
   hasUnsavedChanges: boolean
-  saveCurrentState: () => Promise<void>
+  saveCurrentState: (options?: SaveOptions) => Promise<() => void>
   isSavingSession: boolean
   setIsSavingSession: (saving: boolean) => void
 }
@@ -18,7 +22,7 @@ export function SaveProvider({
 }: { 
   children: ReactNode
   hasUnsavedChanges: boolean
-  saveCurrentState: () => Promise<void>
+  saveCurrentState: (options?: SaveOptions) => Promise<() => void>
   isSavingSession: boolean
   setIsSavingSession: (saving: boolean) => void
 }) {

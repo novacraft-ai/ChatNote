@@ -6,7 +6,7 @@ interface ResizableDividerProps {
   initialWidth: number
   minWidth: number
   maxWidth: number
-  modelMode: 'auto' | 'reasoning' | 'advanced'
+  modelMode: 'auto' | 'quick' | 'thinking'
   onDragStateChange?: (isDragging: boolean) => void
 }
 
@@ -28,10 +28,10 @@ const ResizableDivider: React.FC<ResizableDividerProps> = ({
     switch (modelMode) {
       case 'auto':
         return '#4285f4' // Blue
-      case 'reasoning':
-        return '#9c27b0' // Purple
-      case 'advanced':
+      case 'quick':
         return '#4caf50' // Green
+      case 'thinking':
+        return '#9c27b0' // Purple
       default:
         return '#4285f4'
     }

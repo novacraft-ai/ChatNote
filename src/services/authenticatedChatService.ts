@@ -3,7 +3,7 @@
  * Uses backend proxy with JWT authentication
  */
 
-import { BACKEND_URL, AUTO_MODELS, REASONING_MODELS, ADVANCED_MODELS, isGPTOSSModel, isQwenModel } from '../config'
+import { BACKEND_URL, AUTO_MODELS, REASONING_MODELS, isGPTOSSModel, isQwenModel } from '../config'
 
 export type MessageContent = 
   | string 
@@ -12,6 +12,8 @@ export type MessageContent =
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: MessageContent
+  usedBrowserSearch?: boolean
+  browserSearchSources?: SearchResult[]
 }
 
 export interface SearchResult {
@@ -47,13 +49,30 @@ export interface ChatCompletionResponse {
     completion_tokens: number
     total_tokens: number
   }
+  metadata?: {
+    browserSearch?: boolean
+    browserSearchSources?: SearchResult[]
+  }
+}
+
+export interface ChatResponse {
+  content: string
+  usedBrowserSearch?: boolean
+  browserSearchSources?: SearchResult[]
 }
 
 export interface StreamingChunk {
+  type?: string  // Can be 'metadata' for our custom metadata events
+  browserSearch?: boolean
+  browserSearchSources?: SearchResult[]
   choices?: Array<{
     delta?: {
       content?: string
       reasoning?: string  // Reasoning field in streaming
+      executed_tools?: ExecutedTool[]
+    }
+    message?: {
+      executed_tools?: ExecutedTool[]
     }
   }>
 }
@@ -80,12 +99,6 @@ function getFallbackModels(model: string): string[] {
     const index = REASONING_MODELS.indexOf(model as any)
     return REASONING_MODELS.slice(index)
   }
-  
-  // Advanced mode models
-  if (model === ADVANCED_MODELS.primary) {
-    return [ADVANCED_MODELS.primary, ADVANCED_MODELS.fallback]
-  }
-  
   // Single model, no fallback
   return [model]
 }
@@ -182,14 +195,22 @@ function sanitizeErrorMessage(error: any, status: number): string {
  * Send a chat message via authenticated backend proxy
  * Supports automatic fallback for advanced models
  */
+interface ChatRequestOptions {
+  includeReasoning?: boolean
+  reasoningFormat?: 'raw' | 'parsed' | 'hidden'
+  tools?: any[]
+  toolChoice?: 'auto' | 'required' | 'none'
+}
+
 export async function sendChatMessage(
   messages: ChatMessage[],
   context?: string,
   onChunk?: (chunk: string) => void,
   model?: string,
   abortSignal?: AbortSignal,
-  isReasoningMode?: boolean
-): Promise<string> {
+  isReasoningMode?: boolean,
+  requestOptions?: ChatRequestOptions
+): Promise<ChatResponse> {
   const token = getAuthToken()
   if (!token) {
     throw new Error('Authentication required. Please log in.')
@@ -213,18 +234,29 @@ export async function sendChatMessage(
         stream: !!onChunk
       }
 
+      if (requestOptions?.tools) {
+        requestBody.tools = requestOptions.tools
+      }
+      if (requestOptions?.toolChoice) {
+        requestBody.tool_choice = requestOptions.toolChoice
+      }
+
       // Add reasoning parameters for reasoning models
       // GPT-OSS models use include_reasoning (defaults to true, but we set it explicitly)
       // Qwen models use reasoning_format: 'parsed'
       // Note: reasoning_format and include_reasoning are mutually exclusive
-      if (isReasoning && REASONING_MODELS.includes(tryModel as any)) {
+      const shouldIncludeReasoning = requestOptions?.includeReasoning ?? isReasoning
+
+      if (shouldIncludeReasoning && REASONING_MODELS.includes(tryModel as any)) {
         if (isGPTOSSModel(tryModel)) {
           // GPT-OSS models: use include_reasoning parameter
           requestBody.include_reasoning = true
         } else if (isQwenModel(tryModel)) {
           // Qwen models: use reasoning_format parameter
-          requestBody.reasoning_format = 'parsed'
+          requestBody.reasoning_format = requestOptions?.reasoningFormat || 'parsed'
         }
+      } else if (requestOptions?.includeReasoning === false && isGPTOSSModel(tryModel)) {
+        requestBody.include_reasoning = false
       }
 
       let response: Response
@@ -292,6 +324,7 @@ export async function sendChatMessage(
       const decoder = new TextDecoder()
       let fullContent = ''
       let fullReasoning = ''  // Accumulate reasoning from delta.reasoning
+      let browserSearchSources: SearchResult[] = []  // Accumulate browser search sources
       let buffer = ''
 
       while (true) {
@@ -332,7 +365,15 @@ export async function sendChatMessage(
 
             try {
               const parsed: StreamingChunk = JSON.parse(data)
+              
+              // Check for metadata event (our custom event from backend)
+              if (parsed.type === 'metadata' && parsed.browserSearchSources) {
+                browserSearchSources = parsed.browserSearchSources
+                continue
+              }
+              
               const delta = parsed.choices?.[0]?.delta
+              const message = parsed.choices?.[0]?.message
               
               // Extract content
               if (delta?.content) {
@@ -343,6 +384,15 @@ export async function sendChatMessage(
               // Extract reasoning (for parsed format or GPT-OSS models)
               if (delta?.reasoning) {
                 fullReasoning += delta.reasoning
+              }
+              
+              // Check for executed_tools in delta or message
+              const executedTools = delta?.executed_tools || message?.executed_tools
+              if (executedTools && executedTools.length > 0) {
+                const searchTool = executedTools.find(tool => tool.search_results)
+                if (searchTool?.search_results?.results) {
+                  browserSearchSources = searchTool.search_results.results
+                }
               }
             } catch (e) {
             }
@@ -358,7 +408,14 @@ export async function sendChatMessage(
           if (data !== '[DONE]') {
             try {
               const parsed: StreamingChunk = JSON.parse(data)
+              
+              // Check for metadata event
+              if (parsed.type === 'metadata' && parsed.browserSearchSources) {
+                browserSearchSources = parsed.browserSearchSources
+              }
+              
               const delta = parsed.choices?.[0]?.delta
+              const message = parsed.choices?.[0]?.message
               
               if (delta?.content) {
                 fullContent += delta.content
@@ -368,6 +425,15 @@ export async function sendChatMessage(
               if (delta?.reasoning) {
                 fullReasoning += delta.reasoning
               }
+              
+              // Check for executed_tools
+              const executedTools = delta?.executed_tools || message?.executed_tools
+              if (executedTools && executedTools.length > 0) {
+                const searchTool = executedTools.find(tool => tool.search_results)
+                if (searchTool?.search_results?.results) {
+                  browserSearchSources = searchTool.search_results.results
+                }
+              }
             } catch (e) {
               // Skip invalid JSON
             }
@@ -375,15 +441,23 @@ export async function sendChatMessage(
         }
       }
 
-      // Return content with reasoning if available
-      // We'll need to modify the return type to include reasoning
-      // For now, we'll store it in a way that can be extracted
+      // Return content with reasoning and browser search sources
+      const usedBrowserSearch = requestOptions?.tools?.some(t => t.type === 'browser_search') || false
+      
       if (fullReasoning) {
         // Store reasoning in a special format that can be extracted
-        return `__REASONING_START__${fullReasoning}__REASONING_END__${fullContent}`
+        return {
+          content: `__REASONING_START__${fullReasoning}__REASONING_END__${fullContent}`,
+          usedBrowserSearch,
+          browserSearchSources
+        }
       }
 
-      return fullContent
+      return {
+        content: fullContent,
+        usedBrowserSearch,
+        browserSearchSources
+      }
     }
 
       // Handle non-streaming response
@@ -392,6 +466,10 @@ export async function sendChatMessage(
       let content = message?.content || 'No response from API'
       const reasoning = message?.reasoning
       const executedTools = message?.executed_tools
+      
+      // Extract browser search metadata from backend
+      const usedBrowserSearch = data.metadata?.browserSearch || false
+      const browserSearchSources = data.metadata?.browserSearchSources || []
       
       // Extract search results and format as sources
       // Only for Advanced mode models (groq/compound) that support web search
@@ -415,10 +493,18 @@ export async function sendChatMessage(
       
       // If reasoning exists, return it in a format that can be extracted
       if (reasoning) {
-        return `__REASONING_START__${reasoning}__REASONING_END__${content}`
+        return {
+          content: `__REASONING_START__${reasoning}__REASONING_END__${content}`,
+          usedBrowserSearch,
+          browserSearchSources
+        }
       }
       
-      return content
+      return {
+        content,
+        usedBrowserSearch,
+        browserSearchSources
+      }
     } catch (error) {
       // If this is the last model to try, throw the error
       if (tryModel === modelsToTry[modelsToTry.length - 1]) {
@@ -480,4 +566,3 @@ export async function isChatConfigured(): Promise<boolean> {
     return false
   }
 }
-

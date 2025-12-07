@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { AUTO_MODELS, BACKEND_URL } from '../config'
 import { sendChatMessage, isChatConfigured } from '../services/authenticatedChatService'
+import { notifyPDFHistoryCacheUpdated } from '../utils/pdfHistoryCache'
 import './PDFHistoryPanel.css'
 
 interface PDFHistoryEntry {
@@ -68,6 +69,7 @@ const removeHistoryEntryFromCache = (pdfId: string) => {
     const parsed: CachedHistory = JSON.parse(cached)
     parsed.pdfs = (parsed.pdfs || []).filter(pdf => pdf.pdfId !== pdfId)
     localStorage.setItem(CACHE_KEY, JSON.stringify(parsed))
+    notifyPDFHistoryCacheUpdated()
   } catch (error) {
     console.warn('Failed to update history cache after deletion:', error)
   }
@@ -184,7 +186,19 @@ const clearHistoryVersion = () => {
 // Export function to invalidate cache (called when PDFs are uploaded/saved)
 export function invalidatePDFHistoryCache() {
   try {
-    localStorage.removeItem(CACHE_KEY)
+    const cached = localStorage.getItem(CACHE_KEY)
+    if (cached) {
+      try {
+        const parsed: CachedHistory = JSON.parse(cached)
+        parsed.timestamp = 0
+        localStorage.setItem(CACHE_KEY, JSON.stringify(parsed))
+      } catch {
+        localStorage.removeItem(CACHE_KEY)
+      }
+    } else {
+      localStorage.removeItem(CACHE_KEY)
+    }
+    notifyPDFHistoryCacheUpdated()
   } catch (error) {
     console.warn('Failed to invalidate PDF history cache:', error)
   }
@@ -313,6 +327,7 @@ export default function PDFHistoryPanel({ isOpen, onClose, onSelectPdf, hasUnsav
         timestamp: Date.now()
       }
       localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+      notifyPDFHistoryCacheUpdated()
     } catch (error) {
       console.warn('Failed to save cached history:', error)
     }
@@ -445,7 +460,7 @@ export default function PDFHistoryPanel({ isOpen, onClose, onSelectPdf, hasUnsav
             AUTO_MODELS[0]
           )
           if (cancelled) return
-          const generatedTitle = normalizeGeneratedName(response, pdf.displayName || pdf.originalFileName)
+          const generatedTitle = normalizeGeneratedName(response.content, pdf.displayName || pdf.originalFileName)
           setGeneratedNameCache((prev) => {
             // Check if value actually changed before creating new object
             const existing = prev[pdf.pdfId]
@@ -865,8 +880,22 @@ export default function PDFHistoryPanel({ isOpen, onClose, onSelectPdf, hasUnsav
                                   e.stopPropagation()
                                   handleDeletePdf(pdf.pdfId)
                                 }}
+                                disabled={isDeleting}
+                                title={isDeleting ? 'Deleting...' : 'Confirm delete'}
+                                aria-live="polite"
                               >
-                                Confirm Delete
+                                {isDeleting ? (
+                                  <>
+                                    <div
+                                      className="delete-spinner"
+                                      role="status"
+                                      aria-label="Deleting..."
+                                    />
+                                    <span>Deleting...</span>
+                                  </>
+                                ) : (
+                                  'Confirm Delete'
+                                )}
                               </button>
                             ) : (
                               <button
@@ -924,4 +953,3 @@ export default function PDFHistoryPanel({ isOpen, onClose, onSelectPdf, hasUnsav
     </>
   )
 }
-

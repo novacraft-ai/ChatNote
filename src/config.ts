@@ -9,11 +9,21 @@
 // See SECURITY_WARNING.md for details and use backend proxy instead.
 
 // Model groups for different modes
-// Auto mode: Vision-capable models with fallback
-export const AUTO_MODELS = [
+// Vision models (used when image understanding is required)
+export const VISION_MODELS = [
   'meta-llama/llama-4-scout-17b-16e-instruct',
-  'meta-llama/llama-4-maverick-17b-128e-instruct',
+  'meta-llama/llama-4-maverick-17b-128e-instruct'
+] as const
+
+// Fast text models for lightweight answers
+export const QUICK_MODELS = [
   'llama-3.3-70b-versatile'
+] as const
+
+// Auto mode cycles through vision first, then quick text
+export const AUTO_MODELS = [
+  ...VISION_MODELS,
+  ...QUICK_MODELS
 ] as const
 
 // Reasoning mode: Models that support native reasoning format
@@ -44,12 +54,6 @@ export function isQwenModel(model: string): boolean {
   return QWEN_MODELS.includes(model as any)
 }
 
-// Advanced mode: Compound models with fallback
-export const ADVANCED_MODELS = {
-  primary: 'groq/compound',
-  fallback: 'groq/compound-mini'
-} as const
-
 // Classification models for smart routing (support structured outputs)
 export const CLASSIFICATION_MODELS = [
   'moonshotai/kimi-k2-instruct-0905',
@@ -65,4 +69,3 @@ export const API_PROXY_URL = `${BACKEND_URL}/api/chat`
 
 // Google OAuth Client ID
 export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
-

@@ -2,7 +2,17 @@
 import { BACKEND_URL } from '../config'
 
 export const PDF_HISTORY_CACHE_KEY = 'chatnote_pdf_history_cache'
+export const PDF_HISTORY_CACHE_UPDATED_EVENT = 'pdf-history-cache-updated'
 const DEFAULT_TTL = 5 * 60 * 1000 // 5 minutes
+
+export function notifyPDFHistoryCacheUpdated() {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return
+  try {
+    window.dispatchEvent(new CustomEvent(PDF_HISTORY_CACHE_UPDATED_EVENT))
+  } catch {
+    // Ignore event dispatch errors
+  }
+}
 
 export function getRecentPDFsFromCache(limit = 3) {
   const historyRaw = localStorage.getItem(PDF_HISTORY_CACHE_KEY)
@@ -22,6 +32,7 @@ export function setPDFsInCache(pdfs: any[]) {
   try {
     const cache = { pdfs, timestamp: Date.now() }
     localStorage.setItem(PDF_HISTORY_CACHE_KEY, JSON.stringify(cache))
+    notifyPDFHistoryCacheUpdated()
   } catch (e) {
     // ignore
   }
@@ -55,7 +66,10 @@ export async function prefetchRecentPDFs(limit = 3): Promise<any[]> {
       if (!res.ok) {
         if (res.status === 403) {
           // auth revoked -> clear cache
-          try { localStorage.removeItem(PDF_HISTORY_CACHE_KEY) } catch {}
+          try {
+            localStorage.removeItem(PDF_HISTORY_CACHE_KEY)
+            notifyPDFHistoryCacheUpdated()
+          } catch {}
           return []
         }
         return []

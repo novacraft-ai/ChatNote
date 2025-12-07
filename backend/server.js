@@ -1686,7 +1686,7 @@ app.post('/api/quiz/generate', authenticateToken, async (req, res) => {
 // Analytics API endpoints
 
 // Upsert user in Supabase
-app.post('/api/analytics/user', authenticateToken, async (req, res) => {
+app.post('/api/internal/logs/user', authenticateToken, async (req, res) => {
   try {
     const { userId, email } = req.body;
     
@@ -1752,7 +1752,7 @@ app.post('/api/analytics/user', authenticateToken, async (req, res) => {
 });
 
 // Track event in Supabase
-app.post('/api/analytics/event', authenticateToken, async (req, res) => {
+app.post('/api/internal/logs/event', authenticateToken, async (req, res) => {
   try {
     const { eventName, properties, documentId, sessionId } = req.body;
     
@@ -1790,7 +1790,7 @@ app.post('/api/analytics/event', authenticateToken, async (req, res) => {
 });
 
 // Create document in Supabase
-app.post('/api/analytics/document', authenticateToken, async (req, res) => {
+app.post('/api/internal/logs/document', authenticateToken, async (req, res) => {
   try {
     const { documentId, fileSizeMb } = req.body;
     
@@ -1824,7 +1824,7 @@ app.post('/api/analytics/document', authenticateToken, async (req, res) => {
 });
 
 // Update document in Supabase
-app.patch('/api/analytics/document/:documentId', authenticateToken, async (req, res) => {
+app.patch('/api/internal/logs/document/:documentId', authenticateToken, async (req, res) => {
   try {
     const { documentId } = req.params;
     const { has_annotations, has_notes, has_export } = req.body;
@@ -1887,4 +1887,3 @@ const startServer = async () => {
 }
 
 startServer().catch(console.error)
-

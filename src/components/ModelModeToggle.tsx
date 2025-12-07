@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import './ModelModeToggle.css'
 
-export type ModelMode = 'auto' | 'reasoning' | 'advanced'
+export type ModelMode = 'auto' | 'quick' | 'thinking'
 
 interface ModelModeToggleProps {
   mode: ModelMode
@@ -21,16 +21,16 @@ export default function ModelModeToggle({
   const toggleRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLDivElement>(null)
 
-  const modes: ModelMode[] = ['auto', 'reasoning', 'advanced']
+  const modes: ModelMode[] = ['auto', 'quick', 'thinking']
   const modeLabels = {
     auto: 'Auto',
-    reasoning: 'Reasoning',
-    advanced: 'Advanced'
+    quick: 'Quick',
+    thinking: 'Thinking'
   }
   const modeDescriptions = {
-    auto: 'ChatNote will choose the best model automatically - best for daily use',
-    reasoning: 'Uses advanced reasoning models for complex problems with thinking process',
-    advanced: 'Most capable model for challenging tasks that need real-time information (limited usage)'
+    auto: 'ChatNote auto-selects between vision and reasoning for you',
+    quick: 'Fast answers with lightweight models; switches to vision or search only when required',
+    thinking: 'For deep reasoning, tool use, and citations (no image uploads)'
   }
 
   // Calculate button position based on mode

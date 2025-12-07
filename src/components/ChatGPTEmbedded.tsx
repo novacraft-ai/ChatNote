@@ -3,7 +3,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { sendChatMessage, type ChatMessage } from '../services/authenticatedChatService'
 import { updateFreeTrialCount } from '../services/authService'
-import { AUTO_MODELS, REASONING_MODELS, ADVANCED_MODELS, CLASSIFICATION_MODELS, BACKEND_URL } from '../config'
+import { AUTO_MODELS, REASONING_MODELS, CLASSIFICATION_MODELS, BACKEND_URL, QUICK_MODELS, VISION_MODELS } from '../config'
 import ModelModeToggle, { type ModelMode } from './ModelModeToggle'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -20,6 +20,7 @@ import type { InteractionMode, QuizSession, QuizQuestion } from '../types/intera
 import type { QuizQuestionType } from '../types/interactionModes'
 import { generateQuiz, evaluateAnswer, canGenerateQuiz } from '../services/quizService'
 import { analytics } from '../services/analyticsService'
+import type { PDFExtractionResult, RAGContextResult } from '../types/pdf'
 
 /**
  * Extract keywords from user question for relevance matching
@@ -237,41 +238,115 @@ ${end}`
  */
 async function extractRelevantPDFContext(
   pdfText: string,
+  pdfDocument: PDFExtractionResult | null,
   userQuestion: string,
-  maxTokens: number
-): Promise<string> {
-  if (!pdfText) return pdfText
-  const maxChars = maxTokens * 4 // Convert tokens to approximate characters
-  if (pdfText.length <= maxChars) return pdfText
+  maxTokens: number,
+  _classificationFlags?: { needsVision?: boolean; needsPdfContext?: boolean }
+): Promise<RAGContextResult> {
+  const wrapResult = (text: string): RAGContextResult => ({
+    contextText: text,
+    evidence: []
+  })
 
-  // Try RAG approach first (uses free embedding services - no API key required!)
-  try {
-    // Check for optional API keys (for better embedding quality)
-    // RAG uses TF-IDF (no API keys required)
-    const { getRAGContext } = await import('../utils/pdfRAG')
-    const ragContext = await getRAGContext(pdfText, userQuestion, maxTokens)
-    if (ragContext && ragContext.length > 100) {
-      return ragContext
-    }
-  } catch (error) {
-    // Fallback to keyword search on error
+  if (!pdfText) {
+    return wrapResult(pdfText)
   }
 
-  // Fallback: Use keyword-based search
+  const maxChars = maxTokens * 4 // Convert tokens to approximate characters
+  if (pdfText.length <= maxChars) {
+    return wrapResult(pdfText)
+  }
+
+  const ragSource = pdfDocument || pdfText
+
+  if (ragSource) {
+    try {
+      const { getRAGContext } = await import('../utils/pdfRAG')
+      const pdfTextForRAG = typeof ragSource === 'string' ? ragSource : ragSource.fullText
+      const ragContextText = await getRAGContext(pdfTextForRAG, userQuestion, maxTokens)
+      if (ragContextText && ragContextText.length > 100) {
+        return { contextText: ragContextText, evidence: [] }
+      }
+    } catch (error) {
+      // Fallback to keyword search on error
+    }
+  }
+
   const keywords = extractKeywords(userQuestion)
   const expandedKeywords = expandQuery(keywords)
 
   if (expandedKeywords.length === 0) {
-    return truncateText(pdfText, maxTokens)
+    return wrapResult(truncateText(pdfText, maxTokens))
   }
 
   const searchResult = searchPDFByKeywords(pdfText, expandedKeywords, maxChars)
 
   if (searchResult && searchResult.length > 100) {
-    return searchResult
+    return wrapResult(searchResult)
   }
 
-  return truncateText(pdfText, maxTokens)
+  return wrapResult(truncateText(pdfText, maxTokens))
+}
+
+function buildPdfTocSummary(pdfDocument?: PDFExtractionResult | null, pdfText?: string): string {
+  if (pdfDocument && pdfDocument.pages?.length) {
+    const pageCount = pdfDocument.pages.length
+    const headings: string[] = []
+    for (const page of pdfDocument.pages) {
+      page.blocks?.forEach(block => {
+        if (block.type === 'heading' && block.text) {
+          headings.push(block.text.trim())
+        }
+      })
+      if (headings.length >= 8) break
+    }
+    const topHeadings = headings.slice(0, 8).map((h, idx) => `${idx + 1}. ${h}`).join('\n')
+    return `PDF Summary:
+Pages: ${pageCount}
+Top headings:\n${topHeadings || 'N/A'}`
+  }
+  if (pdfText) {
+    const excerpt = pdfText.slice(0, 500).replace(/\s+/g, ' ').trim()
+    return `PDF Summary:
+Text excerpt: ${excerpt}`
+  }
+  return 'PDF Summary: unavailable'
+}
+
+function buildToolSchemasSummary(): string {
+  return `Available tools:
+- browser_search: query the web for up-to-date information.
+- code_interpreter: run code for calculations and data transforms.`
+}
+
+function buildSystemPromptPrefix(pdfDocument?: PDFExtractionResult | null, pdfText?: string): string {
+  const katexRules = `You are a mathematical assistant. All mathematical equations you generate must be 100% compatible with the KaTeX rendering engine.
+
+Follow these strict rules:
+
+1. Delimiters:
+   - For block-level equations, use $$...$$.
+   - For inline equations, use \(...\).
+   - Do not use single $ or \\[...\\].
+
+2. Alignment:
+   - Use aligned environment.
+   - Do not use align/align*/eqnarray.
+
+3. Formatting:
+   - Use standard LaTeX commands; wrap text in \\text{...}.
+   - Use \\frac for fractions; pmatrix/bmatrix/cases for matrices or cases.
+
+4. Dollar amounts:
+   - Keep dollar amounts in plain text (no math mode) unless part of a formula.
+
+5. Consistency:
+   - Preserve spaces between numbers and words.`
+
+  const pdfSummary = buildPdfTocSummary(pdfDocument, pdfText)
+  const toolsSummary = buildToolSchemasSummary()
+
+  return `${katexRules}\n\n${toolsSummary}\n\n${pdfSummary}`
 }
 
 /**
@@ -394,6 +469,9 @@ interface QuestionClassification {
   needsPdfContext: boolean        // Is this about the PDF?
   needsChatHistory: boolean       // Is this a follow-up question?
   needsFullContext: boolean       // Does it need both PDF + history?
+  needsVision: boolean            // Mentions figures/images that require visual context
+  needsRealtime: boolean          // Requires up-to-date or internet info
+  needsCodeExecution: boolean     // Needs python/code interpreter for precise answers
 
   // Answer complexity
   answerComplexity: 'quick' | 'detailed' | 'reasoning'  // How complex is the answer?
@@ -431,6 +509,93 @@ interface RoutingDecision {
   // Model hints (optional)
   preferQuickModel: boolean       // Use faster model for quick answers
   needsReasoning: boolean         // Needs reasoning model
+  needsVisionModel?: boolean
+  needsRealtimeTools?: boolean
+  needsCodeInterpreter?: boolean
+}
+
+interface ModelSelection {
+  model: string
+  includeReasoning: boolean
+  useBrowserSearch: boolean
+  useCodeInterpreter: boolean
+  isVisionRequest: boolean
+}
+
+const DEFAULT_VISION_MODEL = VISION_MODELS[0]
+const DEFAULT_QUICK_MODEL = QUICK_MODELS[0] || AUTO_MODELS[AUTO_MODELS.length - 1]
+
+function selectModelForRequest(
+  mode: ModelMode,
+  classification: QuestionClassification,
+  routing: RoutingDecision,
+  hasUploadedImages: boolean
+): ModelSelection {
+  const needsVision = mode !== 'thinking' && (hasUploadedImages || routing.needsVisionModel || classification.needsVision)
+  const needsRealtime = routing.needsRealtimeTools || classification.needsRealtime
+  const needsReasoning = routing.needsReasoning || classification.answerComplexity === 'reasoning'
+  const needsCode = routing.needsCodeInterpreter || classification.needsCodeExecution
+
+  // Vision models take priority when vision is needed and available
+  if (needsVision && DEFAULT_VISION_MODEL) {
+    return {
+      model: DEFAULT_VISION_MODEL,
+      includeReasoning: false,
+      useBrowserSearch: false,
+      useCodeInterpreter: false,
+      isVisionRequest: true
+    }
+  }
+
+  const reasoningModel = REASONING_MODELS[0]
+
+  if (mode === 'thinking' && reasoningModel) {
+    return {
+      model: reasoningModel,
+      includeReasoning: true,
+      useBrowserSearch: !!needsRealtime,
+      useCodeInterpreter: !!needsCode,
+      isVisionRequest: false
+    }
+  }
+
+  if (mode === 'quick') {
+    if ((needsReasoning || needsRealtime || needsCode) && reasoningModel) {
+      return {
+        model: reasoningModel,
+        includeReasoning: false,
+        useBrowserSearch: !!needsRealtime,
+        useCodeInterpreter: !!needsCode,
+        isVisionRequest: false
+      }
+    }
+    return {
+      model: DEFAULT_QUICK_MODEL,
+      includeReasoning: false,
+      useBrowserSearch: false,
+      useCodeInterpreter: false,
+      isVisionRequest: false
+    }
+  }
+
+  // Auto mode
+  if ((needsReasoning || needsRealtime || needsCode) && reasoningModel) {
+    return {
+      model: reasoningModel,
+      includeReasoning: true,
+      useBrowserSearch: !!needsRealtime,
+      useCodeInterpreter: !!needsCode,
+      isVisionRequest: false
+    }
+  }
+
+  return {
+    model: DEFAULT_QUICK_MODEL,
+    includeReasoning: false,
+    useBrowserSearch: false,
+    useCodeInterpreter: false,
+    isVisionRequest: false
+  }
 }
 
 /**
@@ -478,6 +643,22 @@ function classifyQuestionRules(
     /(relationship|connection|difference|similarity|correlation)/i,
   ]
 
+  const visionPatterns = [
+    /(figure|fig\.?|chart|graph|diagram|image|picture|illustration|plot|table)/i,
+    /(red line|blue line|green line|curve)/i
+  ]
+
+  const realtimePatterns = [
+    /(today|current|latest|recent|this week|this month|breaking|news|update)/i,
+    /(on the internet|online|google|web)/i
+  ]
+
+  const codePatterns = [
+    /(run|execute)\s+(python|code|script)/i,
+    /(write|generate)\s+(python|code|script)/i,
+    /(simulate|program|algorithm)/i
+  ]
+
   // Classification logic
   const isQuick = quickPatterns.some(pattern => pattern.test(q))
   const isFollowUp = hasHistory && followUpPatterns.some(pattern => pattern.test(q))
@@ -487,6 +668,9 @@ function classifyQuestionRules(
   const isCalculation = /(calculate|solve|compute|formula|equation|math)/i.test(q)
   const isComparison = /(compare|contrast|difference|similar|versus|vs)/i.test(q)
   const isClarification = /(what do you mean|clarify|explain.*again|repeat)/i.test(q)
+  const needsVision = visionPatterns.some(pattern => pattern.test(q))
+  const needsRealtime = realtimePatterns.some(pattern => pattern.test(q))
+  const needsCodeExecution = isCalculation || codePatterns.some(pattern => pattern.test(q))
 
   // Check if question asks about content (needed for PDF relevance calculation)
   const asksAboutContent = /(what is|what's|what are|tell me about|summarize|explain|describe).*(about|say|contain|discuss)/i.test(q)
@@ -535,6 +719,9 @@ function classifyQuestionRules(
     needsPdfContext,
     needsChatHistory,
     needsFullContext,
+    needsVision,
+    needsRealtime,
+    needsCodeExecution,
     answerComplexity,
     isClarification,
     isFollowUp,
@@ -582,6 +769,9 @@ async function classifyQuestionLLM(
       needsPdfContext: { type: 'boolean' },
       needsChatHistory: { type: 'boolean' },
       needsFullContext: { type: 'boolean' },
+      needsVision: { type: 'boolean' },
+      needsRealtime: { type: 'boolean' },
+      needsCodeExecution: { type: 'boolean' },
       answerComplexity: { type: 'string', enum: ['quick', 'detailed', 'reasoning'] },
       isClarification: { type: 'boolean' },
       isFollowUp: { type: 'boolean' },
@@ -593,7 +783,7 @@ async function classifyQuestionLLM(
       confidence: { type: 'number', minimum: 0, maximum: 1 }
     },
     required: [
-      'needsPdfContext', 'needsChatHistory', 'needsFullContext', 'answerComplexity',
+      'needsPdfContext', 'needsChatHistory', 'needsFullContext', 'needsVision', 'needsRealtime', 'needsCodeExecution', 'answerComplexity',
       'isClarification', 'isFollowUp', 'isDefinition', 'isCalculation', 'isComparison',
       'pdfRelevanceScore', 'historyRelevanceScore', 'confidence'
     ],
@@ -618,6 +808,9 @@ async function classifyQuestionLLM(
 - Whether the question references previous conversation
 - The complexity of the answer needed (quick fact, detailed explanation, or reasoning)
 - Question characteristics (clarification, follow-up, definition, calculation, comparison)
+- Whether the question references figures/images requiring vision support
+- Whether the question needs real-time or internet data
+- Whether the question needs code execution beyond simple reasoning
 
 ${pdfContext}
 ${historyContext}
@@ -660,7 +853,8 @@ Output your classification as JSON matching the provided schema.`
   }
 
   // Fallback to rule-based if all LLM attempts fail
-  return classifyQuestionRules(question, chatHistory, hasPdf)
+  const fallback = classifyQuestionRules(question, chatHistory, hasPdf)
+  return fallback
 }
 
 /**
@@ -682,7 +876,8 @@ async function classifyQuestion(
 
   // For ambiguous cases, use LLM classification
   try {
-    return await classifyQuestionLLM(question, chatHistory, hasPdf, authToken)
+    const llmResult = await classifyQuestionLLM(question, chatHistory, hasPdf, authToken)
+    return llmResult
   } catch (error) {
     return ruleBased
   }
@@ -696,7 +891,7 @@ function routeQuestion(
   modelMode: ModelMode,
   chatHistoryLength: number
 ): RoutingDecision {
-  const isReasoningMode = modelMode === 'reasoning'
+  const isThinkingMode = modelMode === 'thinking'
 
   // Decision tree based on classification
   // IMPORTANT: Check PDF needs FIRST, even for quick questions
@@ -708,10 +903,10 @@ function routeQuestion(
     // The question being simple doesn't mean we can skimp on PDF context
     // Always include at least 2 previous messages for context, even if not explicitly needed
     const pdfTokens = classification.answerComplexity === 'quick'
-      ? (isReasoningMode ? 1500 : 2000)  // Quick PDF questions: still need good context
-      : (classification.answerComplexity === 'detailed' && !isReasoningMode ? 2000 : 1500)
+      ? (isThinkingMode ? 1500 : 2000)  // Quick PDF questions: still need good context
+      : (classification.answerComplexity === 'detailed' && !isThinkingMode ? 2000 : 1500)
     const minHistoryCount = 2 // Always include at least 2 messages
-    return {
+    const decision = {
       includePdfContext: true,
       pdfContextTokens: pdfTokens,
       includeChatHistory: chatHistoryLength > 0, // Include history if available
@@ -719,14 +914,18 @@ function routeQuestion(
       summarizeOldMessages: chatHistoryLength > minHistoryCount,
       recentMessagesCount: minHistoryCount,
       preferQuickModel: classification.answerComplexity === 'quick',
-      needsReasoning: classification.answerComplexity === 'reasoning'
+      needsReasoning: classification.answerComplexity === 'reasoning',
+      needsVisionModel: classification.needsVision,
+      needsRealtimeTools: classification.needsRealtime,
+      needsCodeInterpreter: classification.needsCodeExecution
     }
+    return decision
   }
 
   if (classification.needsChatHistory && !classification.needsPdfContext) {
     // History-only question
-    const historyDepth = classification.isFollowUp ? 2 : (isReasoningMode ? 2 : 5)
-    return {
+    const historyDepth = classification.isFollowUp ? 2 : (isThinkingMode ? 2 : 5)
+    const decision = {
       includePdfContext: false,
       pdfContextTokens: 0,
       includeChatHistory: true,
@@ -734,15 +933,18 @@ function routeQuestion(
       summarizeOldMessages: chatHistoryLength > historyDepth,
       recentMessagesCount: historyDepth,
       preferQuickModel: classification.answerComplexity === 'quick',
-      needsReasoning: classification.answerComplexity === 'reasoning'
+      needsReasoning: classification.answerComplexity === 'reasoning',
+      needsVisionModel: classification.needsVision,
+      needsRealtimeTools: classification.needsRealtime,
+      needsCodeInterpreter: classification.needsCodeExecution
     }
+    return decision
   }
 
   // Quick questions without PDF or history needs
-  // Still include at least 2 previous messages for context
   if (classification.answerComplexity === 'quick' && !classification.needsPdfContext && !classification.needsChatHistory) {
     const minHistoryCount = 2 // Always include at least 2 messages
-    return {
+    const decision = {
       includePdfContext: false,
       pdfContextTokens: 0,
       includeChatHistory: chatHistoryLength > 0, // Include history if available
@@ -750,8 +952,12 @@ function routeQuestion(
       summarizeOldMessages: chatHistoryLength > minHistoryCount,
       recentMessagesCount: minHistoryCount,
       preferQuickModel: true,
-      needsReasoning: false
+      needsReasoning: false,
+      needsVisionModel: classification.needsVision,
+      needsRealtimeTools: classification.needsRealtime,
+      needsCodeInterpreter: classification.needsCodeExecution
     }
+    return decision
   }
 
   // Default: balanced approach (both PDF and history, or complex questions)
@@ -759,17 +965,17 @@ function routeQuestion(
   // If PDF is needed, ensure adequate context even for quick questions
   const pdfTokens = classification.needsPdfContext
     ? (classification.answerComplexity === 'quick'
-      ? (isReasoningMode ? 1200 : 1500)  // Quick questions with PDF: still need good context
-      : (isReasoningMode ? 1500 : (classification.answerComplexity === 'detailed' ? 2000 : 1500)))
+      ? (isThinkingMode ? 1200 : 1500)  // Quick questions with PDF: still need good context
+      : (isThinkingMode ? 1500 : (classification.answerComplexity === 'detailed' ? 2000 : 1500)))
     : 0
 
   // When needsChatHistory is True, include more messages
   // When needsChatHistory is False, still include at least 2 messages for context
   const historyDepth = classification.needsChatHistory
-    ? (isReasoningMode ? 2 : (classification.isFollowUp ? 2 : 5))  // More messages when explicitly needed
+    ? (isThinkingMode ? 2 : (classification.isFollowUp ? 2 : 5))  // More messages when explicitly needed
     : 2  // Minimum 2 messages even when not explicitly needed
 
-  return {
+  const decision = {
     includePdfContext: classification.needsPdfContext,
     pdfContextTokens: pdfTokens,
     includeChatHistory: chatHistoryLength > 0, // Always include history if available
@@ -777,8 +983,12 @@ function routeQuestion(
     summarizeOldMessages: chatHistoryLength > historyDepth,
     recentMessagesCount: historyDepth,
     preferQuickModel: classification.answerComplexity === 'quick',
-    needsReasoning: classification.answerComplexity === 'reasoning'
+    needsReasoning: classification.answerComplexity === 'reasoning',
+    needsVisionModel: classification.needsVision,
+    needsRealtimeTools: classification.needsRealtime,
+    needsCodeInterpreter: classification.needsCodeExecution
   }
+  return decision
 }
 
 /**
@@ -786,9 +996,9 @@ function routeQuestion(
  * This preserves conversation context while reducing tokens
  * Uses a more efficient format to minimize token usage
  * @param oldMessages Messages to summarize
- * @param isReasoningMode If true, use more aggressive summarization
+ * @param isThinkingMode If true, use more aggressive summarization
  */
-function summarizeOldMessages(oldMessages: ChatMessage[], isReasoningMode: boolean = false): ChatMessage {
+function summarizeOldMessages(oldMessages: ChatMessage[], isThinkingMode: boolean = false): ChatMessage {
   if (oldMessages.length === 0) {
     return { role: 'system', content: '' }
   }
@@ -797,8 +1007,8 @@ function summarizeOldMessages(oldMessages: ChatMessage[], isReasoningMode: boole
   const summaryParts: string[] = []
 
   // More aggressive truncation for reasoning mode
-  const userTruncateLength = isReasoningMode ? 50 : 80
-  const assistantTruncateLength = isReasoningMode ? 80 : 120
+  const userTruncateLength = isThinkingMode ? 50 : 80
+  const assistantTruncateLength = isThinkingMode ? 80 : 120
 
   // Group messages into conversation pairs for better context
   for (let i = 0; i < oldMessages.length; i += 2) {
@@ -831,7 +1041,7 @@ function summarizeOldMessages(oldMessages: ChatMessage[], isReasoningMode: boole
   }
 
   // Create compact summary - even more compact for reasoning mode
-  const prefix = isReasoningMode ? `[Prev (${oldMessages.length})]` : `[Previous conversation (${oldMessages.length} msgs)]`
+  const prefix = isThinkingMode ? `[Prev (${oldMessages.length})]` : `[Previous conversation (${oldMessages.length} msgs)]`
   const summary = `${prefix}:\n${summaryParts.join('\n')}`
 
   return {
@@ -925,6 +1135,7 @@ function extractThinking(content: string): { thinking: string | null; mainConten
 interface ChatGPTEmbeddedProps {
   selectedText: string
   pdfText: string
+  pdfDocument?: PDFExtractionResult | null
   onToggleLayout?: () => void
   layout: 'floating' | 'split'
   currentPageNumber?: number
@@ -942,7 +1153,7 @@ interface ChatGPTEmbeddedProps {
   onModelModeChange?: (mode: ModelMode) => void
 }
 
-function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onCreateKnowledgeNote, onClearSelectedText, onAddAnnotationToPDF, onOpenKnowledgeNotes, onToggleKnowledgeNotes, showKnowledgeNotes, onModeChange, resetModeRef, modelMode: externalModelMode, onModelModeChange }: ChatGPTEmbeddedProps) {
+function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPageNumber, onCreateKnowledgeNote, onClearSelectedText, onAddAnnotationToPDF, onOpenKnowledgeNotes, onToggleKnowledgeNotes, showKnowledgeNotes, onModeChange, resetModeRef, modelMode: externalModelMode, onModelModeChange }: ChatGPTEmbeddedProps) {
   const { theme } = useTheme()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
 
@@ -1328,38 +1539,19 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
     }
   }, [enlargedImage])
 
-  // Get current model based on mode (with fallback logic handled in service)
-  const getCurrentModel = (): string => {
-    switch (modelMode) {
-      case 'auto':
-        return AUTO_MODELS[0]
-      case 'reasoning':
-        return REASONING_MODELS[0]
-      case 'advanced':
-        return ADVANCED_MODELS.primary
-    }
-  }
-
   const handleModeChange = (mode: ModelMode) => {
     setModelMode(mode)
     // Sync with parent if callback provided
     if (onModelModeChange) {
       onModelModeChange(mode)
     }
-    // Clear uploaded images when switching away from auto mode (vision models)
-    if (mode !== 'auto' && uploadedImages.length > 0) {
+    // Clear uploaded images when switching to thinking mode (no vision support)
+    if (mode === 'thinking' && uploadedImages.length > 0) {
       setUploadedImages([])
     }
   }
 
-  const isVisionModel = () => {
-    // Only Auto mode supports vision (llama 4 models)
-    if (modelMode !== 'auto') return false
-    const currentModel = getCurrentModel()
-    // Check if it's one of the llama 4 models
-    return currentModel === 'meta-llama/llama-4-scout-17b-16e-instruct' ||
-      currentModel === 'meta-llama/llama-4-maverick-17b-128e-instruct'
-  }
+  const isVisionModel = () => modelMode !== 'thinking'
 
   // Clear uploaded images when switching from vision model to non-vision model
   useEffect(() => {
@@ -1402,6 +1594,12 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
   }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Gate uploads in thinking mode
+    if (!isVisionModel()) {
+      setError('Image uploads are not available in Thinking mode. Switch to Auto or Quick mode to use vision features.')
+      return
+    }
+
     const files = e.target.files
     if (!files || files.length === 0) return
 
@@ -1546,8 +1744,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
 
   const handleSend = async () => {
     const userInput = input.trim()
-    const hasImages = uploadedImages.length > 0
-    if (!userInput && !selectedText && !hasImages) return
+    if (!userInput && !selectedText && uploadedImages.length === 0) return
 
     if (!isAuthenticated) {
       setError('Please sign in to use the chat feature.')
@@ -1599,9 +1796,88 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
       userMessageContent = `${userInput}\n\nContext from PDF: ${selectedText}`
     }
 
+    // Smart Routing: Classify question and determine optimal context strategy
+    // This happens BEFORE building the message to determine if we need vision format
+    const isThinkingMode = modelMode === 'thinking'
+    const hasPdf = (pdfText && pdfText.trim().length > 0) || !!selectedText
+    const questionText = userInput || (selectedText ? `Tell me about: ${selectedText}` : '')
+    const hasImages = uploadedImages.length > 0
+
+    // Get auth token for LLM classification if needed
+    const authToken = localStorage.getItem('auth_token') || ''
+
+    // Classify the question (hybrid: rules first, LLM for ambiguous cases)
+    let classification: QuestionClassification
+    let routing: RoutingDecision
+
+    try {
+      classification = await classifyQuestion(questionText, messages, hasPdf, authToken)
+      routing = routeQuestion(classification, modelMode, messages.length)
+
+    } catch (error) {
+      console.warn('[Smart Router] Classification failed, using default routing:', error)
+      classification = {
+        needsPdfContext: hasPdf,
+        needsChatHistory: messages.length > 0,
+        needsFullContext: hasPdf && messages.length > 0,
+        needsVision: hasImages,
+        needsRealtime: false,
+        needsCodeExecution: false,
+        answerComplexity: 'detailed',
+        isClarification: false,
+        isFollowUp: false,
+        isDefinition: false,
+        isCalculation: false,
+        isComparison: false,
+        pdfRelevanceScore: hasPdf ? 0.5 : 0,
+        historyRelevanceScore: messages.length > 0 ? 0.5 : 0,
+        classificationMethod: 'rule-based',
+        confidence: 0.3
+      }
+      // Fallback to default routing (use generous PDF context to ensure questions can be answered)
+      routing = {
+        includePdfContext: hasPdf,
+        pdfContextTokens: isThinkingMode ? 1500 : 2000,
+        includeChatHistory: true,
+        chatHistoryDepth: isThinkingMode ? 2 : 5,
+        summarizeOldMessages: messages.length > (isThinkingMode ? 2 : 5),
+        recentMessagesCount: isThinkingMode ? 2 : 5,
+        preferQuickModel: false,
+        needsReasoning: false
+      }
+    }
+
+    if (!classification) {
+      classification = {
+        needsPdfContext: hasPdf,
+        needsChatHistory: messages.length > 0,
+        needsFullContext: hasPdf && messages.length > 0,
+        needsVision: hasImages,
+        needsRealtime: false,
+        needsCodeExecution: false,
+        answerComplexity: 'detailed',
+        isClarification: false,
+        isFollowUp: false,
+        isDefinition: false,
+        isCalculation: false,
+        isComparison: false,
+        pdfRelevanceScore: hasPdf ? 0.5 : 0,
+        historyRelevanceScore: messages.length > 0 ? 0.5 : 0,
+        classificationMethod: 'rule-based',
+        confidence: 0.3
+      }
+    }
+
+    const modelSelection = selectModelForRequest(modelMode, classification, routing, uploadedImages.length > 0)
+    const targetModel = modelSelection.model
+    const shouldExposeThinking = modelMode === 'thinking' || modelSelection.includeReasoning
+
+    // Store RAG result for later use (to extract figure previews)
+    let ragResult: RAGContextResult | null = null
+
     // Build message content - for vision models, use array format with images
     let messageContent: ChatMessage['content']
-    if (isVisionModel() && uploadedImages.length > 0) {
+    if (modelSelection.isVisionRequest) {
       // Vision models need content array format
       const contentArray: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = []
 
@@ -1610,11 +1886,13 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
         contentArray.push({ type: 'text', text: userMessageContent })
       }
 
-      // Add images
+      // Add manually uploaded images
       uploadedImages.forEach((imageUrl) => {
         contentArray.push({ type: 'image_url', image_url: { url: imageUrl } })
       })
 
+      // Add figure previews from PDF if available (for figure-related questions)
+      // This will be populated after RAG context extraction
       messageContent = contentArray
     } else {
       // Regular text-only message
@@ -1652,38 +1930,6 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
       })
     })
 
-    // Smart Routing: Classify question and determine optimal context strategy
-    // This happens AFTER UI update for better UX
-    const isReasoningMode = modelMode === 'reasoning'
-    const hasPdf = (pdfText && pdfText.trim().length > 0) || !!selectedText
-    const questionText = userInput || (selectedText ? `Tell me about: ${selectedText}` : '')
-
-    // Get auth token for LLM classification if needed
-    const authToken = localStorage.getItem('auth_token') || ''
-
-    // Classify the question (hybrid: rules first, LLM for ambiguous cases)
-    let classification: QuestionClassification
-    let routing: RoutingDecision
-
-    try {
-      classification = await classifyQuestion(questionText, messages, hasPdf, authToken)
-      routing = routeQuestion(classification, modelMode, messages.length)
-
-    } catch (error) {
-      console.warn('[Smart Router] Classification failed, using default routing:', error)
-      // Fallback to default routing (use generous PDF context to ensure questions can be answered)
-      routing = {
-        includePdfContext: hasPdf,
-        pdfContextTokens: isReasoningMode ? 1500 : 2000,  // Generous context for fallback
-        includeChatHistory: true,
-        chatHistoryDepth: isReasoningMode ? 2 : 5,
-        summarizeOldMessages: messages.length > (isReasoningMode ? 2 : 5),
-        recentMessagesCount: isReasoningMode ? 2 : 5,
-        preferQuickModel: false,
-        needsReasoning: false
-      }
-    }
-
     // Apply routing decision to determine context
     let contextToSend: string | undefined
 
@@ -1694,12 +1940,45 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
       } else if (pdfText && pdfText.trim().length > 0) {
         // Use smart PDF extraction based on routing decision with hybrid RAG
         if (userInput && userInput.trim().length > 0) {
-          // Use simple keyword search approach for better retrieval
-          contextToSend = await extractRelevantPDFContext(
+          ragResult = await extractRelevantPDFContext(
             pdfText,
+            pdfDocument || null,
             userInput,
-            routing.pdfContextTokens
+            routing.pdfContextTokens,
+            {
+              needsVision: classification.needsVision,
+              needsPdfContext: classification.needsPdfContext
+            }
           )
+          contextToSend = ragResult.contextText
+          const figurePreviews = ragResult.evidence
+            ?.filter(ev => ev.type === 'figure' && ev.figurePreview)
+            .map(ev => ev.figurePreview!) || []
+          
+          // Inject figure previews into vision model requests
+          if (modelSelection.isVisionRequest && Array.isArray(messageContent)) {
+            figurePreviews.forEach(url => {
+              (messageContent as Array<{ type: string; text?: string; image_url?: { url: string } }>).push({
+                type: 'image_url',
+                image_url: { url }
+              })
+            })
+
+            // If needsVision and we have a requested page but no figure previews, attach full-page render if available
+            if (classification.needsVision && (!figurePreviews || figurePreviews.length === 0)) {
+              const pageMatch = userInput?.match(/page\s+(\d{1,3})/i)
+              const requestedPage = pageMatch ? parseInt(pageMatch[1], 10) : undefined
+              if (requestedPage && pdfDocument?.pages) {
+                const page = pdfDocument.pages.find(p => p.pageNumber === requestedPage)
+                if (page?.pageImageDataUrl) {
+                  (messageContent as Array<{ type: string; text?: string; image_url?: { url: string } }>).push({
+                    type: 'image_url',
+                    image_url: { url: page.pageImageDataUrl }
+                  })
+                }
+              }
+            }
+          }
         } else {
           contextToSend = truncateText(pdfText, routing.pdfContextTokens)
         }
@@ -1711,13 +1990,14 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
     const assistantMessageId = (Date.now() + 1).toString()
     // Find the selected text from the user message that triggered this response
     const userMessageSelectedText = userMessage.selectedTextAtSend
-    const assistantMessage: ChatMessage & { id: string; selectedTextAtSend?: string; pageNumberAtSend?: number; textYPositionAtSend?: number } = {
+    const assistantMessage: ChatMessage & { id: string; selectedTextAtSend?: string; pageNumberAtSend?: number; textYPositionAtSend?: number; pdfCitations?: string[] } = {
       id: assistantMessageId,
       role: 'assistant',
       content: '',
       selectedTextAtSend: userMessageSelectedText, // Inherit the selected text from the user's message
       pageNumberAtSend: userMessage.pageNumberAtSend, // Inherit the page number from the user's message
       textYPositionAtSend: userMessage.textYPositionAtSend, // Inherit the Y position from the user's message
+      pdfCitations: (ragResult?.evidence?.map(ev => ev.citation).filter(Boolean) as string[]) || []
     }
     setMessages((prev) => [...prev, assistantMessage])
 
@@ -1743,7 +2023,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
           const recentMessages = messages.slice(-recentCount)
 
           // Summarize old messages (use reasoning mode flag for aggressive summarization)
-          const summaryMessage = summarizeOldMessages(oldMessages, isReasoningMode)
+          const summaryMessage = summarizeOldMessages(oldMessages, isThinkingMode)
 
           // Combine summary + recent messages
           conversationHistory = [
@@ -1779,13 +2059,14 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
 
       // Model-specific token limits (conservative estimates to avoid rate limits)
       const MODEL_TOKEN_LIMITS: Record<string, number> = {
-        'openai/gpt-oss-120b': 7000, // 8000 TPM limit, use 7000 to be safe
-        'openai/gpt-oss-20b': 7000,  // 8000 TPM limit, use 7000 to be safe
-        'qwen/qwen3-32b': 5000,      // 6000 TPM limit, use 5000 to be safe (also has lower request limit)
+        'openai/gpt-oss-120b': 7000,
+        'openai/gpt-oss-20b': 7000,
+        'qwen/qwen3-32b': 5000,
+        'meta-llama/llama-4-scout-17b-16e-instruct': 120000,
+        'meta-llama/llama-4-maverick-17b-128e-instruct': 120000,
       }
 
-      const currentModel = getCurrentModel()
-      const modelLimit = MODEL_TOKEN_LIMITS[currentModel] || 8000
+      const modelLimit = MODEL_TOKEN_LIMITS[targetModel] || 8000
 
       // If estimated tokens exceed limit, reduce context
       if (estimatedTokens > modelLimit && contextToSend) {
@@ -1794,56 +2075,17 @@ function ChatGPTEmbedded({ selectedText, pdfText, layout, currentPageNumber, onC
         contextToSend = truncateText(contextToSend, targetContextTokens)
       }
 
-      // Add KaTeX-friendly system prompt to guide model's math output
-      const katexSystemPrompt: ChatMessage = {
+      // Build stable system prompt prefix (KaTeX rules + tool schemas + PDF summary/TOC) for prompt caching
+      const systemPromptContent = buildSystemPromptPrefix(pdfDocument || null, pdfText)
+      const systemPrompt: ChatMessage = {
         role: 'system',
-        content: `You are a mathematical assistant. All mathematical equations you generate must be 100% compatible with the KaTeX rendering engine.
-
-Follow these strict rules:
-
-1. **Delimiters:**
-   * For block-level equations (on their own line), **must** use \`$$...$$\` delimiters.
-   * For inline equations (inside a sentence), **must** use \`\\(...\\)\` delimiters.
-   * **Do not** use single \`$\` or \`\\[...\\]\` delimiters.
-
-2. **Alignment (Crucial):**
-   * To align multiple equations, **must** use the \`aligned\` environment.
-   * **Do not** use the \`align\`, \`align*\`, or \`eqnarray\` environments, as they are not supported.
-   * Example of a correct multi-line equation:
-     \`\`\`
-     $$
-     \\begin{aligned}
-     a &= b + c \\\\
-     d &= e + f
-     \\end{aligned}
-     $$
-     \`\`\`
-
-3. **General Formatting:**
-   * Use standard, common LaTeX commands.
-   * To write plain text inside math, **must** use \`\\text{...}\`.
-   * To create a fraction, **must** use \`\\frac{...}{...}\`.
-   * To create a matrix or case, use the \`pmatrix\`, \`bmatrix\`, or \`cases\` environments.
-   * **Do not** use complex, obscure, or custom LaTeX packages. Stick to \`amsmath\`-style commands that are known to be supported by KaTeX.
-
-4. **Dollar Amounts and Numbers:**
-   * For dollar amounts in text (e.g., "$40,000", "$1,000"), use plain text with commas, NOT math delimiters.
-   * **Always include spaces** before and after dollar amounts when they appear in sentences (e.g., "between $40,000 and $42,000", not "between $40,000and$42,000").
-   * **Do not** wrap dollar amounts in \`$\` delimiters unless they are part of a mathematical expression.
-   * For consistency, use the same formatting style for similar phrases (e.g., if you use "no smaller than" in normal text, use "no larger than" in the same style, not italic).
-
-5. **Text Formatting Consistency:**
-   * Use consistent markdown formatting for similar phrases.
-   * If you use italic (\`*text*\`) for emphasis, use it consistently for similar phrases.
-   * **Always preserve spaces** between numbers and words (e.g., "1,000 and", not "1,000and$42,000").
-   * **Do not** wrap dollar amounts in \`$\` delimiters unless they are part of a mathematical expression.
-   * For consistency, use the same formatting style for similar phrases (e.g., if you use "no smaller than" in normal text, use "no larger than" in the same style, not italic).`
+        content: systemPromptContent
       }
 
       // Prepend system prompt to conversation history (only once, at the beginning)
       const messagesWithSystemPrompt = conversationHistory.length > 0 && conversationHistory[0]?.role === 'system'
         ? conversationHistory // Already has a system message, don't add another
-        : [katexSystemPrompt, ...conversationHistory]
+        : [systemPrompt, ...conversationHistory]
 
       // If still over limit, reduce conversation history further
       let finalEstimatedTokens = estimateConversationTokens(
@@ -1883,6 +2125,14 @@ Follow these strict rules:
       // Use the user message as-is (no hard-coded prompts)
       const finalUserMessage = userMessage
 
+      const tools: any[] = []
+      if (modelSelection.useBrowserSearch) {
+        tools.push({ type: 'browser_search' })
+      }
+      if (modelSelection.useCodeInterpreter) {
+        tools.push({ type: 'code_interpreter' })
+      }
+
       const messagePromise = sendChatMessage(
         [...conversationHistory, finalUserMessage],
         contextToSend,
@@ -1893,13 +2143,13 @@ Follow these strict rules:
           }
           fullResponse += chunk
 
-          // Extract thinking during streaming for both Reasoning and Advanced modes
+          // Extract thinking during streaming for Thinking mode
           // This ensures users don't see the __REASONING_START__/__REASONING_END__ markers during streaming
           const { thinking: streamingThinking, mainContent: streamingMainContent } = extractThinking(fullResponse)
           const hasStreamingThinking = streamingThinking && streamingThinking.trim().length > 0
 
-          if (isReasoningMode || (modelMode === 'advanced' && hasStreamingThinking)) {
-            // In reasoning mode or advanced mode with thinking, extract and display separately
+          if (shouldExposeThinking && hasStreamingThinking) {
+            // In thinking mode with reasoning enabled, extract and display separately
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantMessageId
@@ -1923,9 +2173,14 @@ Follow these strict rules:
           }
           scrollToBottom(false)
         },
-        currentModel,
+        targetModel,
         abortControllerRef.current?.signal,
-        isReasoningMode
+        shouldExposeThinking,
+        {
+          includeReasoning: modelSelection.includeReasoning,
+          tools: tools.length > 0 ? tools : undefined,
+          toolChoice: tools.length > 0 ? 'auto' : undefined
+        }
       )
 
       // Handle the promise to prevent unhandled rejections
@@ -1939,7 +2194,8 @@ Follow these strict rules:
         throw error
       })
 
-      const finalResponse = await messagePromise
+      const chatResponse = await messagePromise
+      const finalResponse = chatResponse.content
 
       // For reasoning mode, extract reasoning from response
       // Groq reasoning models can return reasoning in different formats:
@@ -2115,8 +2371,8 @@ Follow these strict rules:
       }
 
 
-      // Extract and store thinking if it exists (for both Reasoning and Advanced modes)
-      // Advanced mode models (like groq/compound) sometimes return reasoning content
+      // Extract and store thinking if it exists (for Thinking mode)
+      // Reasoning models may return reasoning content in separate field
       // Use finalThinking and finalMainContent (which handle duplicate detection)
       const hasThinking = finalThinking && finalThinking.trim().length > 0
 
@@ -2136,8 +2392,8 @@ Follow these strict rules:
         return { ...prev, [assistantMessageId]: newResponses }
       })
 
-      if (isReasoningMode || (modelMode === 'advanced' && hasThinking)) {
-        // In reasoning mode or advanced mode with thinking, show both thinking and main content
+      if (shouldExposeThinking && hasThinking) {
+        // In thinking mode with reasoning enabled, show both thinking and main content
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantMessageId
@@ -2146,7 +2402,9 @@ Follow these strict rules:
                 // If finalMainContent is empty, don't fall back to finalResponse (which contains reasoning)
                 // Instead, use empty string or a placeholder
                 content: responseData.content,
-                thinking: responseData.thinking
+                thinking: responseData.thinking,
+                usedBrowserSearch: chatResponse.usedBrowserSearch,
+                browserSearchSources: chatResponse.browserSearchSources
               }
               : msg
           )
@@ -2156,7 +2414,13 @@ Follow these strict rules:
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === assistantMessageId
-              ? { ...msg, content: responseData.content, thinking: undefined }
+              ? { 
+                ...msg, 
+                content: responseData.content, 
+                thinking: undefined,
+                usedBrowserSearch: chatResponse.usedBrowserSearch,
+                browserSearchSources: chatResponse.browserSearchSources
+              }
               : msg
           )
         )
@@ -2238,7 +2502,6 @@ Follow these strict rules:
     if (userMessageIndex < 0) return
 
     const userMessage = messages[userMessageIndex]
-    const isReasoningMode = modelMode === 'reasoning'
 
     // Clear the current response content to show it's being regenerated
     setMessages((prev) =>
@@ -2259,6 +2522,12 @@ Follow these strict rules:
     abortControllerRef.current = new AbortController()
 
     try {
+      // Get auth token first
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        throw new Error('Authentication required')
+      }
+
       // Extract question text and context from the original user message
       const questionText = typeof userMessage.content === 'string'
         ? userMessage.content
@@ -2279,28 +2548,57 @@ Follow these strict rules:
         if (originalSelectedText) {
           contextToSend = originalSelectedText
         } else {
-          // Use smart PDF extraction
-          contextToSend = await extractRelevantPDFContext(
-            pdfText,
-            questionText,
-            isReasoningMode ? 1500 : 2000
-          )
+          // Will be replaced with proper RAG token budget after classification
+          contextToSend = pdfText
         }
       }
 
-      // Determine which model to use based on mode
-      let currentModel: string
-      if (modelMode === 'auto') {
-        currentModel = AUTO_MODELS[0]
-      } else if (modelMode === 'reasoning') {
-        currentModel = REASONING_MODELS[0]
-      } else {
-        currentModel = ADVANCED_MODELS.primary
+      // Use new classification and routing system for regeneration
+      const classification = await classifyQuestion(
+        questionText,
+        conversationHistory,
+        !!contextToSend,
+        token
+      )
+      
+      const routing = routeQuestion(classification, modelMode, conversationHistory.length)
+      const modelSelection = selectModelForRequest(
+        modelMode,
+        classification,
+        routing,
+        false // No uploaded images in regeneration
+      )
+
+      // Compute shouldExposeThinking based on model mode and selection
+      const shouldExposeThinking = modelMode === 'thinking' || modelSelection.includeReasoning
+
+      // Now update context based on routing decision
+      if (pdfText && pdfText.trim().length > 0 && !originalSelectedText) {
+        const ragResult = await extractRelevantPDFContext(
+          pdfText,
+          pdfDocument || null,
+          questionText,
+          routing.pdfContextTokens,
+          {
+            needsVision: classification.needsVision,
+            needsPdfContext: classification.needsPdfContext
+          }
+        )
+        contextToSend = ragResult.contextText
+      }
+
+      // Build tools array based on model selection
+      const tools: any[] = []
+      if (modelSelection.useBrowserSearch) {
+        tools.push({ type: 'browser_search' })
+      }
+      if (modelSelection.useCodeInterpreter) {
+        tools.push({ type: 'code_interpreter' })
       }
 
       // Call the API to get a new response
       let fullResponse = ''
-      const finalResponse = await sendChatMessage(
+      const chatResponse = await sendChatMessage(
         [...conversationHistory, userMessage],
         contextToSend,
         (chunk: string) => {
@@ -2313,7 +2611,7 @@ Follow these strict rules:
           const { thinking: streamingThinking, mainContent: streamingMainContent } = extractThinking(fullResponse)
           const hasStreamingThinking = streamingThinking && streamingThinking.trim().length > 0
 
-          if (isReasoningMode || (modelMode === 'advanced' && hasStreamingThinking)) {
+          if (shouldExposeThinking && hasStreamingThinking) {
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === messageId
@@ -2336,10 +2634,17 @@ Follow these strict rules:
           }
           scrollToBottom(false)
         },
-        currentModel,
-        abortControllerRef.current.signal,
-        isReasoningMode
+        modelSelection.model,
+        abortControllerRef.current?.signal,
+        modelSelection.includeReasoning,
+        {
+          includeReasoning: modelSelection.includeReasoning,
+          tools: tools.length > 0 ? tools : undefined,
+          toolChoice: tools.length > 0 ? 'auto' : undefined
+        }
       )
+
+      const finalResponse = chatResponse.content
 
       // Process the final response
       const { thinking, mainContent } = extractThinking(finalResponse)
@@ -2348,8 +2653,8 @@ Follow these strict rules:
       let finalThinking = thinking
       let finalMainContent = mainContent
 
-      // Handle Advanced mode special cases
-      if (modelMode === 'advanced' && hasThinking) {
+      // Handle Thinking mode special cases where model only returns reasoning
+      if (shouldExposeThinking && hasThinking) {
         if (thinking && (!mainContent || mainContent.trim().length === 0)) {
           // Extract conclusion from thinking
           const conclusionPatterns = [
@@ -2474,14 +2779,16 @@ Follow these strict rules:
       })
 
       // Update the message with the new response
-      if (isReasoningMode || (modelMode === 'advanced' && hasThinking)) {
+      if (shouldExposeThinking && hasThinking) {
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === messageId
               ? {
                 ...msg,
                 content: responseData.content,
-                thinking: responseData.thinking
+                thinking: responseData.thinking,
+                usedBrowserSearch: chatResponse.usedBrowserSearch,
+                browserSearchSources: chatResponse.browserSearchSources
               }
               : msg
           )
@@ -2490,7 +2797,13 @@ Follow these strict rules:
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === messageId
-              ? { ...msg, content: responseData.content, thinking: undefined }
+              ? { 
+                ...msg, 
+                content: responseData.content, 
+                thinking: undefined,
+                usedBrowserSearch: chatResponse.usedBrowserSearch,
+                browserSearchSources: chatResponse.browserSearchSources
+              }
               : msg
           )
         )
@@ -3215,9 +3528,8 @@ ${question.question}
                         </div>
                       ) : message.role === 'assistant' && message.content ? (
                         <>
-                          {/* Show thinking process when in Reasoning or Advanced mode and thinking content exists */}
-                          {/* Note: thinking is preserved in chat history even when switching modes */}
-                          {(modelMode === 'reasoning' || modelMode === 'advanced') && message.thinking && message.thinking.trim().length > 0 ? (
+                          {/* Show thinking process in Thinking mode when available */}
+                          {modelMode === 'thinking' && message.thinking && message.thinking.trim().length > 0 ? (
                             <div className="thinking-process-container">
                               <button
                                 className={`thinking-toggle-button ${expandedThinking[message.id] ? 'expanded' : ''}`}
@@ -3340,7 +3652,7 @@ ${question.question}
                                 {(() => {
                                   try {
                                     if (typeof message.content === 'string' && message.content) {
-                                      // Strip <tool> and <think> tags from advanced model responses
+                                      // Strip <tool> and <think> tags from model responses
                                       let processed = message.content.replace(/<tool>[\s\S]*?<\/tool>/gi, '').replace(/<think>[\s\S]*?<\/think>/gi, '')
                                       processed = preprocessMathContent(processed)
 
@@ -3599,6 +3911,32 @@ ${question.question}
                         <div className="markdown-content">{typeof message.content === 'string' ? message.content : ''}</div>
                       )}
                     </div>
+                    {/* Only show PDF citations when browser search was NOT used */}
+                    {message.role === 'assistant' && !(message as any)?.usedBrowserSearch && (message as any)?.pdfCitations && (message as any).pdfCitations.length > 0 && (
+                      <div className="message-citations">
+                        <span className="message-citations-label">Citations:</span>
+                        <ul className="message-citations-list">
+                          {(message as any).pdfCitations.map((cit: string, idx: number) => (
+                            <li key={idx}>{cit}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {/* Show browser search sources when browser search was used */}
+                    {message.role === 'assistant' && (message as any)?.usedBrowserSearch && (message as any)?.browserSearchSources && (message as any).browserSearchSources.length > 0 && (
+                      <div className="message-citations">
+                        <span className="message-citations-label">Sources:</span>
+                        <ul className="message-citations-list">
+                          {(message as any).browserSearchSources.map((source: any, idx: number) => (
+                            <li key={idx}>
+                              <a href={source.url} target="_blank" rel="noopener noreferrer">
+                                {source.title}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     {message.role === 'assistant' && message.content && (
                       <div className="message-actions">
                         <button
@@ -4039,6 +4377,3 @@ ${question.question}
 }
 
 export default ChatGPTEmbedded
-
-
-

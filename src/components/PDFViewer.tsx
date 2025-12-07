@@ -10,7 +10,11 @@ import { Annotation, ImageAnnotation, TextBoxAnnotation, HighlightAnnotation, CO
 import { saveAnnotatedPDF, downloadPDF } from '../utils/pdfAnnotationSaver'
 import { KnowledgeNote } from '../types/knowledgeNotes'
 import { analytics } from '../services/analyticsService'
-import { getRecentPDFsFromCache, prefetchRecentPDFs } from '../utils/pdfHistoryCache'
+import {
+  getRecentPDFsFromCache,
+  prefetchRecentPDFs,
+  PDF_HISTORY_CACHE_UPDATED_EVENT,
+} from '../utils/pdfHistoryCache'
 import chatNoteIcon from '../assets/chatnote-logo.svg'
 
 const clampToUnit = (value: number) => Math.max(0, Math.min(1, value))
@@ -1391,6 +1395,17 @@ function PDFViewer({
     }
   }, [isDriveAuthorized])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleCacheUpdate = () => {
+      setRecentPdfsState(getRecentPDFsFromCache(3))
+    }
+    window.addEventListener(PDF_HISTORY_CACHE_UPDATED_EVENT, handleCacheUpdate)
+    return () => {
+      window.removeEventListener(PDF_HISTORY_CACHE_UPDATED_EVENT, handleCacheUpdate)
+    }
+  }, [])
+
   // Trigger an entrance animation when recent PDFs become available
   useEffect(() => {
     if (isDriveAuthorized && recentPdfsState && recentPdfsState.length > 0) {
@@ -1401,13 +1416,10 @@ function PDFViewer({
     setShowRecentPdfsAnimated(false)
   }, [isDriveAuthorized, recentPdfsState])
 
-  if (!file && !isLoadingPdf) {
-    // Only show recent PDFs if user isDriveAuthorized
-    // Props are now destructured above
-    // Use shared utility to get recent PDFs
-    // Note: component-level state will handle background prefetch updates
-    const recentPdfs = recentPdfsState
+  const isEmptyState = !file && !isLoadingPdf
 
+  const renderEmptyState = () => {
+    const recentPdfs = recentPdfsState
     return (
       <div className={`pdf-viewer-empty ${layout === 'floating' ? 'float-layout' : ''}`}>  
         <div className="start-page-content">
@@ -1454,17 +1466,147 @@ function PDFViewer({
     )
   }
 
-  // selectedAnnotation removed - annotation controls are handled in AnnotationLayer (floating toolbar)
-
   return (
     <div className={`pdf-viewer ${isSavingSession ? 'saving-session' : ''}`} ref={pdfViewerRef}>
-      {isLoadingPdf && (
-        <div className="pdf-loading-overlay">
-          <div className="pdf-loading-spinner">
-            <div className="spinner"></div>
-            <p>Loading PDF...</p>
+      {isEmptyState ? (
+        renderEmptyState()
+      ) : (
+        <>
+          {isLoadingPdf && (
+            <div className="pdf-loading-overlay">
+              <div className="pdf-loading-spinner">
+                <div className="spinner"></div>
+                <p>Loading PDF...</p>
+              </div>
+            </div>
+          )}
+          <AnnotationToolbar
+            mode={annotationMode}
+            onModeChange={setAnnotationMode}
+            highlightColor={highlightColor}
+            onHighlightColorChange={handleHighlightColorChange}
+            onHighlightClick={handleHighlightClick}
+            hasTextSelection={!!currentSelection}
+            isHighlightActive={!!highlightedSelectionId}
+            showColorPicker={showColorPicker}
+            onImageUpload={handleImageUpload}
+            
+            onToggleLayout={onToggleLayout}
+            showLayoutToggle={showLayoutToggle}
+            onClearAll={() => {
+              setAnnotations([])
+              setSelectedAnnotationId(null)
+            }}
+            // PDF controls
+            pageNumber={pageNumber}
+            numPages={numPages}
+            onPrevPage={goToPrevPage}
+            onNextPage={goToNextPage}
+            scale={scale}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onFitWidth={handleFitWidth}
+            onFitHeight={handleFitHeight}
+            layout={layout}
+            onZoomInputClick={handleZoomInputClick}
+            isEditingZoom={isEditingZoom}
+            zoomInputValue={zoomInputValue}
+            onZoomInputChange={handleZoomInputChange}
+            onZoomInputBlur={handleZoomInputBlur}
+            onZoomInputKeyDown={handleZoomInputKeyDown}
+            onZoomInputPaste={handleZoomInputPaste}
+            zoomInputRef={zoomInputRef}
+            // removed passing selectedAnnotation and onAnnotationUpdate since textbox controls are now floating
+          />
+          <div
+            ref={pdfContentRef}
+            className={`pdf-content ${isDragOver ? 'drag-over' : ''}`}
+            onMouseUp={handleTextSelection}
+            onKeyUp={handleTextSelection}
+            onClick={handleClick}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => {
+              setIsDragOver(false)
+              handleDrop(e)
+            }}
+          >
+            {file && (
+              <Document
+                file={fileUrl || file}
+                onLoadSuccess={onDocumentLoadSuccess}
+                onLoadError={onDocumentLoadError}
+                loading={<div className="loading">Loading PDF...</div>}
+                error={
+                  <div className="error">
+                    Failed to load PDF. Please check the console for details.
+                    <br />
+                    <small>Worker: {pdfjs.GlobalWorkerOptions?.workerSrc || 'Not set'}</small>
+                  </div>
+                }
+                noData={<div className="loading">No PDF file selected</div>}
+                options={documentOptions}
+              >
+                {Array.from(new Array(numPages), (_, index) => {
+                  const pageNum = index + 1
+                  const pageDims = pageDimensionsRef.current.get(pageNum)
+                  return (
+                    <div
+                      key={`page-wrapper-${pageNum}`}
+                      ref={(el) => {
+                        if (el) {
+                          pageRefs.current.set(pageNum, el)
+                        } else {
+                          pageRefs.current.delete(pageNum)
+                        }
+                      }}
+                      className="pdf-page-wrapper"
+                      style={{ position: 'relative' }}
+                    >
+                      <Page
+                        key={`page_${pageNum}_${renderKey}`}
+                        pageNumber={pageNum}
+                        scale={scale}
+                        devicePixelRatio={window.devicePixelRatio || 1}
+                        renderTextLayer={true}
+                        renderAnnotationLayer={true}
+                        onLoadSuccess={(page) => onPageLoadSuccess({ pageNumber: pageNum, page })}
+                      />
+                      {pageDims && (
+                        <>
+                          <AnnotationLayer
+                            pageNumber={pageNum}
+                            pageWidth={pageDims.width}
+                            pageHeight={pageDims.height}
+                            scale={scale}
+                            annotations={annotations}
+                            selectedAnnotationId={selectedAnnotationId}
+                            onAnnotationUpdate={handleAnnotationUpdate}
+                            onAnnotationDelete={handleAnnotationDelete}
+                            onAnnotationSelect={setSelectedAnnotationId}
+                            mode={annotationMode}
+                          />
+                          {showKnowledgeNotes && (
+                            <KnowledgeNoteConnections
+                              pageNumber={pageNum}
+                              pageWidth={pageDims.width}
+                              pageHeight={pageDims.height}
+                              scale={scale}
+                              knowledgeNotes={knowledgeNotes}
+                              showKnowledgeNotes={showKnowledgeNotes}
+                              layout={layout}
+                              onNoteClick={onNoteClick}
+                            />
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </Document>
+            )}
           </div>
-        </div>
+        </>
       )}
       {isSavingSession && (
         <div className="pdf-saving-overlay">
@@ -1475,135 +1617,8 @@ function PDFViewer({
           </div>
         </div>
       )}
-      <AnnotationToolbar
-        mode={annotationMode}
-        onModeChange={setAnnotationMode}
-        highlightColor={highlightColor}
-        onHighlightColorChange={handleHighlightColorChange}
-        onHighlightClick={handleHighlightClick}
-        hasTextSelection={!!currentSelection}
-        isHighlightActive={!!highlightedSelectionId}
-        showColorPicker={showColorPicker}
-        onImageUpload={handleImageUpload}
-        
-        onToggleLayout={onToggleLayout}
-        showLayoutToggle={showLayoutToggle}
-        onClearAll={() => {
-          setAnnotations([])
-          setSelectedAnnotationId(null)
-        }}
-        // PDF controls
-        pageNumber={pageNumber}
-        numPages={numPages}
-        onPrevPage={goToPrevPage}
-        onNextPage={goToNextPage}
-        scale={scale}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-        onFitWidth={handleFitWidth}
-        onFitHeight={handleFitHeight}
-        layout={layout}
-        onZoomInputClick={handleZoomInputClick}
-        isEditingZoom={isEditingZoom}
-        zoomInputValue={zoomInputValue}
-        onZoomInputChange={handleZoomInputChange}
-        onZoomInputBlur={handleZoomInputBlur}
-        onZoomInputKeyDown={handleZoomInputKeyDown}
-        onZoomInputPaste={handleZoomInputPaste}
-        zoomInputRef={zoomInputRef}
-        // removed passing selectedAnnotation and onAnnotationUpdate since textbox controls are now floating
-      />
-      <div
-        ref={pdfContentRef}
-        className={`pdf-content ${isDragOver ? 'drag-over' : ''}`}
-        onMouseUp={handleTextSelection}
-        onKeyUp={handleTextSelection}
-        onClick={handleClick}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={(e) => {
-          setIsDragOver(false)
-          handleDrop(e)
-        }}
-      >
-        {file && (
-          <Document
-            file={fileUrl || file}
-            onLoadSuccess={onDocumentLoadSuccess}
-            onLoadError={onDocumentLoadError}
-            loading={<div className="loading">Loading PDF...</div>}
-            error={
-              <div className="error">
-                Failed to load PDF. Please check the console for details.
-                <br />
-                <small>Worker: {pdfjs.GlobalWorkerOptions?.workerSrc || 'Not set'}</small>
-              </div>
-            }
-            noData={<div className="loading">No PDF file selected</div>}
-            options={documentOptions}
-          >
-            {Array.from(new Array(numPages), (_, index) => {
-              const pageNum = index + 1
-              const pageDims = pageDimensionsRef.current.get(pageNum)
-              return (
-                <div
-                  key={`page-wrapper-${pageNum}`}
-                  ref={(el) => {
-                    if (el) {
-                      pageRefs.current.set(pageNum, el)
-                    } else {
-                      pageRefs.current.delete(pageNum)
-                    }
-                  }}
-                  className="pdf-page-wrapper"
-                  style={{ position: 'relative' }}
-                >
-                  <Page
-                    key={`page_${pageNum}_${renderKey}`}
-                    pageNumber={pageNum}
-                    scale={scale}
-                    devicePixelRatio={window.devicePixelRatio || 1}
-                    renderTextLayer={true}
-                    renderAnnotationLayer={true}
-                    onLoadSuccess={(page) => onPageLoadSuccess({ pageNumber: pageNum, page })}
-                  />
-                  {pageDims && (
-                    <>
-                      <AnnotationLayer
-                        pageNumber={pageNum}
-                        pageWidth={pageDims.width}
-                        pageHeight={pageDims.height}
-                        scale={scale}
-                        annotations={annotations}
-                        selectedAnnotationId={selectedAnnotationId}
-                        onAnnotationUpdate={handleAnnotationUpdate}
-                        onAnnotationDelete={handleAnnotationDelete}
-                        onAnnotationSelect={setSelectedAnnotationId}
-                        mode={annotationMode}
-                      />
-                      {showKnowledgeNotes && (
-                        <KnowledgeNoteConnections
-                          pageNumber={pageNum}
-                          pageWidth={pageDims.width}
-                          pageHeight={pageDims.height}
-                          scale={scale}
-                          knowledgeNotes={knowledgeNotes}
-                          showKnowledgeNotes={showKnowledgeNotes}
-                          layout={layout}
-                          onNoteClick={onNoteClick}
-                        />
-                      )}
-                    </>
-                  )}
-                </div>
-              )
-            })}
-          </Document>
-        )}
-      </div>
     </div>
   )
 }
 
 export default PDFViewer
-

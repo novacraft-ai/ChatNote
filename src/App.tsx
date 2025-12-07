@@ -10,6 +10,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import KnowledgeNotesPanel from './components/KnowledgeNotesPanel'
 import PDFHistoryPanel, { invalidatePDFHistoryCache, prefetchPDFHistory, markPDFHistoryNeedsRefresh } from './components/PDFHistoryPanel'
 import { extractTextFromPDF } from './utils/pdfTextExtractor'
+import type { PDFExtractionResult } from './types/pdf'
 import { KnowledgeNote } from './types/knowledgeNotes'
 import { COMMON_COLORS, TextBoxAnnotation, Annotation } from './types/annotations'
 import { useAuth } from './contexts/AuthContext'
@@ -33,6 +34,7 @@ function AppContent() {
   const { isAuthenticated, user, refreshUser } = useAuth()
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [pdfText, setPdfText] = useState<string>('')
+  const [pdfDocument, setPdfDocument] = useState<PDFExtractionResult | null>(null)
   const [selectedText, setSelectedText] = useState<string>('')
   const [chatLayout, setChatLayout] = useState<ChatLayout>('split')
   const [currentPageNumber, setCurrentPageNumber] = useState<number>(1)
@@ -63,7 +65,7 @@ function AppContent() {
   // Model mode and chat width state for resizable divider
   const [modelMode, setModelMode] = useState<ModelMode>(() => {
     const saved = localStorage.getItem('chatModelMode')
-    return (saved === 'auto' || saved === 'reasoning' || saved === 'advanced') ? saved : 'auto'
+    return (saved === 'auto' || saved === 'quick' || saved === 'thinking') ? saved : 'auto'
   })
   const [chatWidth, setChatWidth] = useState<number>(() => {
     const saved = localStorage.getItem('chatWidth')
@@ -186,6 +188,7 @@ function AppContent() {
       // Clear all PDF state on logout
       setPdfFile(null)
       setPdfText('')
+      setPdfDocument(null)
       setAnnotations([])
       setKnowledgeNotes([])
       setCurrentPdfId(null)
@@ -282,20 +285,20 @@ function AppContent() {
     setIsUploading(true)
     try {
       // Step 1: Extract text from PDF
-      const extractedText = await extractTextFromPDF(file)
-      setPdfText(extractedText)
+      const extraction = await extractTextFromPDF(file)
+      setPdfText(extraction.fullText)
+      setPdfDocument(extraction)
 
       // Step 2: Index PDF with embeddings (happens once on upload)
       // This creates embeddings for all chunks so we can do semantic search later
-      if (extractedText && extractedText.trim().length > 0) {
+      if (extraction.fullText && extraction.fullText.trim().length > 0) {
         try {
           const { indexPDF } = await import('./utils/pdfRAG')
 
           // Index PDF with progress callback (optional - for UI feedback)
           // Uses TF-IDF (no API keys required)
-          await indexPDF(extractedText)
+          await indexPDF(extraction.fullText)
         } catch (error) {
-          console.warn('[RAG] Failed to index PDF, will use keyword search:', error)
           // Continue - keyword search will work as fallback
         }
       }
@@ -324,10 +327,10 @@ function AppContent() {
 
             // Generate title using LLM if text is available
             let generatedTitle = ''
-            if (extractedText && extractedText.trim().length > 0) {
+            if (extraction.fullText && extraction.fullText.trim().length > 0) {
               try {
                 // Take first 1000 chars for title generation
-                const context = extractedText.slice(0, 1000)
+                const context = extraction.fullText.slice(0, 1000)
                 const prompt = `You generate short, descriptive titles for uploaded PDFs based on their content.
 File name: "${file.name}"
 Content snippet: "${context}"
@@ -341,7 +344,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
                 )
 
                 // Clean response
-                generatedTitle = response
+                generatedTitle = response.content
                   .replace(/^["'“”`]+|["'“”`]+$/g, '') // Remove quotes
                   .replace(/[.:]+$/g, '') // Remove trailing punctuation
                   .trim()
@@ -378,6 +381,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
               // Invalidate cache so history updates
               invalidatePDFHistoryCache()
               markPDFHistoryNeedsRefresh(false)
+
             } else {
               console.warn('Failed to upload PDF to Drive:', await response.text())
             }
@@ -390,6 +394,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
     } catch (error) {
       console.error('Failed to extract PDF text:', error)
       setPdfText('')
+      setPdfDocument(null)
       
       // Track upload error
       const errorMessage = error instanceof Error 
@@ -409,6 +414,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
   useEffect(() => {
     if (!pdfFile) {
       setPdfText('')
+      setPdfDocument(null)
       // Clear RAG indices when PDF is removed
       import('./utils/pdfRAG').then(({ clearPDFIndices }) => {
         clearPDFIndices()
@@ -663,9 +669,9 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
     }
   }, [pdfFile, currentPdfId, isAuthenticated, annotations, knowledgeNotes, lastSaveTime, lastModificationTime, handleSaveAnnotations, handleSaveKnowledgeNotes])
 
-  const saveCurrentPdfState = useCallback(async () => {
+  const saveCurrentPdfState = useCallback(async (options?: { keepOverlay?: boolean }): Promise<() => void> => {
     if (!currentPdfId || !isAuthenticated) {
-      return
+      return () => {}
     }
     
     // Remember if chat was visible
@@ -682,21 +688,40 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
     
     // Show saving visual effect
     setIsSavingSession(true)
+
+    let overlayReleased = false
+    const restoreUI = () => {
+      if (overlayReleased) return
+      overlayReleased = true
+      setIsSavingSession(false)
+      if (wasChatVisible) {
+        setChatVisible(true)
+      }
+    }
     
     try {
       await Promise.all([
         handleSaveAnnotations(),
         handleSaveKnowledgeNotes()
       ])
+    } catch (error) {
+      if (options?.keepOverlay) {
+        restoreUI()
+      }
+      throw error
     } finally {
-      // Hide saving visual effect
-      setIsSavingSession(false)
-      
-      // Re-show chat window if it was visible before
-      if (wasChatVisible) {
-        setChatVisible(true)
+      if (!options?.keepOverlay) {
+        restoreUI()
       }
     }
+
+    if (options?.keepOverlay) {
+      return () => {
+        restoreUI()
+      }
+    }
+
+    return () => {}
   }, [currentPdfId, isAuthenticated, isChatVisible, setChatVisible, handleSaveAnnotations, handleSaveKnowledgeNotes])
 
   // Load PDF from history
@@ -706,16 +731,20 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
       return
     }
 
+    let pendingSaveRelease: Promise<() => void> | null = null
+
     // Save current PDF's annotations and notes before switching (if there are changes)
     if (currentPdfId && isAuthenticated && hasCurrentPdfUnsavedChanges) {
       try {
-        // Wait for saves to complete (but don't block if it takes too long)
+        pendingSaveRelease = saveCurrentPdfState({ keepOverlay: true })
         await Promise.race([
-          saveCurrentPdfState(),
-          new Promise(resolve => setTimeout(resolve, 2000)) // Max 2 second wait
+          pendingSaveRelease,
+          new Promise(resolve => setTimeout(resolve, 2000))
         ])
       } catch (error) {
         console.warn('Failed to save before switching PDF:', error)
+        pendingSaveRelease = null
+        setIsSavingSession(false)
         // Continue anyway - don't block user from switching
       }
     }
@@ -726,11 +755,6 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
     setIsLoadingPdf(true)
     // Hide knowledge notes panel by default when switching PDFs from history
     setShowKnowledgeNotes(false)
-    // Clear current PDF and its data first to show loading state
-    setPdfFile(null)
-    setAnnotations([])
-    setKnowledgeNotes([])
-    setCurrentPdfId(null)
 
     try {
       const token = localStorage.getItem('auth_token')
@@ -766,23 +790,27 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
       setCurrentPdfId(data.metadata.pdfId)
 
       // Extract text (don't wait for this to show PDF)
-      extractTextFromPDF(file).then((extractedText) => {
-        setPdfText(extractedText)
+      extractTextFromPDF(file).then((extraction) => {
+        extraction.fileName = data.metadata.originalFileName
+        
+        setPdfText(extraction.fullText)
+        setPdfDocument(extraction)
 
         // Re-index for RAG
-        if (extractedText && extractedText.trim().length > 0) {
+        if (extraction.fullText && extraction.fullText.trim().length > 0) {
           try {
             import('./utils/pdfRAG').then(({ indexPDF }) => {
-              indexPDF(extractedText).catch((error) => {
-                console.warn('[RAG] Failed to index PDF:', error)
+              indexPDF(extraction.fullText).catch(() => {
+                // Silently ignore indexing errors
               })
             })
           } catch (error) {
-            console.warn('[RAG] Failed to index PDF:', error)
+            // Silently ignore indexing errors
           }
         }
       }).catch((error) => {
         console.warn('Failed to extract PDF text:', error)
+        setPdfDocument(null)
       })
 
       // Restore annotations
@@ -809,6 +837,16 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
       setIsLoadingPdf(false)
     }
     // Note: Don't clear isLoadingPdf here - let PDFViewer clear it when document loads
+    finally {
+      if (pendingSaveRelease) {
+        pendingSaveRelease
+          .then((release) => release())
+          .catch((error) => {
+            console.warn('Failed to finalize save before releasing overlay:', error)
+            setIsSavingSession(false)
+          })
+      }
+    }
   }
 
   const handleNewSession = async () => {
@@ -818,19 +856,22 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
     await analytics.endNoteModeTracking()
 
     if (hadUnsavedChanges) {
-      setIsSavingSession(true)
+      let releaseOverlay: (() => void) | null = null
       try {
-        await saveCurrentPdfState()
+        releaseOverlay = await saveCurrentPdfState({ keepOverlay: true })
       } catch (error) {
         console.warn('Failed to save before starting new session:', error)
       } finally {
-        setIsSavingSession(false)
+        if (releaseOverlay) {
+          releaseOverlay()
+        }
       }
     }
 
     // Clear current state (show start page)
     setPdfFile(null)
     setPdfText('')
+    setPdfDocument(null)
     setAnnotations([])
     setKnowledgeNotes([])
     setCurrentPdfId(null)
@@ -1044,6 +1085,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
             <ChatGPTEmbedded
               selectedText={selectedText}
               pdfText={pdfText}
+              pdfDocument={pdfDocument}
               onToggleLayout={toggleChatLayout}
               onToggleKnowledgeNotes={async () => {
                 if (showKnowledgeNotes) {
@@ -1159,4 +1201,3 @@ function App() {
 }
 
 export default App
-
