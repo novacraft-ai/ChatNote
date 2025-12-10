@@ -28,8 +28,8 @@ export default function ModelModeToggle({
     thinking: 'Thinking'
   }
   const modeDescriptions = {
-    auto: 'ChatNote auto-selects between vision and reasoning for you',
-    quick: 'Fast answers with lightweight models; switches to vision or search only when required',
+    auto: 'ChatNote auto-selects between quick and thinking for you',
+    quick: 'Fast answers with lightweight models',
     thinking: 'For deep reasoning, tool use, and citations (no image uploads)'
   }
 

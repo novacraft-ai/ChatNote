@@ -8,6 +8,7 @@ import AnnotationToolbar from './AnnotationToolbar'
 import KnowledgeNoteConnections from './KnowledgeNoteConnections'
 import { Annotation, ImageAnnotation, TextBoxAnnotation, HighlightAnnotation, COMMON_COLORS } from '../types/annotations'
 import { saveAnnotatedPDF, downloadPDF } from '../utils/pdfAnnotationSaver'
+import { useChatVisibility } from '../contexts/ChatVisibilityContext'
 import { KnowledgeNote } from '../types/knowledgeNotes'
 import { analytics } from '../services/analyticsService'
 import {
@@ -76,6 +77,7 @@ function PDFViewer({
   isDriveAuthorized,
   onSelectRecentPdf,
 }: PDFViewerProps) {
+  const { isChatVisible } = useChatVisibility()
   const [numPages, setNumPages] = useState<number>(0)
   const [pageNumber, setPageNumber] = useState<number>(1)
   const [scale, setScale] = useState<number>(1.0)
@@ -100,6 +102,7 @@ function PDFViewer({
   const [isDragOver, setIsDragOver] = useState(false)
   const prevAnnotationsRef = useRef<Annotation[]>(initialAnnotations)
   const onAnnotationsChangeRef = useRef(onAnnotationsChange)
+  const annotationIdCounterRef = useRef<number>(0)
 
   // Keep callback ref up to date
   useEffect(() => {
@@ -889,7 +892,7 @@ function PDFViewer({
           const constrainedY = Math.max(0, Math.min(1 - 0.1, relativeY - 0.05))
 
           const newAnnotation: TextBoxAnnotation = {
-            id: `textbox-${Date.now()}`,
+            id: `textbox-${Date.now()}-${annotationIdCounterRef.current++}`,
             type: 'textbox',
             pageNumber: targetPage,
             x: constrainedX,
@@ -1493,6 +1496,7 @@ function PDFViewer({
             
             onToggleLayout={onToggleLayout}
             showLayoutToggle={showLayoutToggle}
+            isChatVisible={isChatVisible}
             onClearAll={() => {
               setAnnotations([])
               setSelectedAnnotationId(null)

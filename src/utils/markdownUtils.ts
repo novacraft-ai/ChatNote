@@ -1,4 +1,26 @@
 /**
+ * Sanitize broken KaTeX patterns that models sometimes generate
+ * Fixes common issues like: \pm; (semicolon after operator), numbers with commas, etc.
+ */
+function sanitizeKaTeX(content: string): string {
+    // Remove semicolons immediately after operators (e.g., \pm; -> \pm)
+    content = content.replace(/\\(pm|times|div|approx|leq|geq|neq|pm|mp|ast);/g, '\\$1')
+    
+    // Remove commas from numbers in math mode: 28,000 -> 28000
+    // Pattern: $ or $$ followed by content with comma-separated numbers
+    content = content.replace(/(\$\$?[^$]*\d+),(\d{3}[^$]*\$\$?)/g, '$1$2')
+    
+    // Remove trailing commas in math expressions: "42," -> "42"
+    content = content.replace(/(\$\$?)([^$]*\d),(\s*\$\$?)/g, '$1$2$3')
+    
+    // Remove spacing commands that break in KaTeX: \; \: \quad \qquad
+    content = content.replace(/\\[;:]/g, ' ')
+    content = content.replace(/\\quad\b/g, ' ')
+    
+    return content
+}
+
+/**
  * Preprocess markdown content to clean Unicode and wrap unwrapped math expressions
  */
 export function preprocessMathContent(content: string): string {
@@ -8,9 +30,12 @@ export function preprocessMathContent(content: string): string {
 
     // Note: Logging is handled in the message rendering section to avoid duplicate logs during streaming
 
+    // Step 0: Sanitize broken KaTeX patterns before any other processing
+    let sanitized = sanitizeKaTeX(content)
+
     // Step 1: Clean Unicode spaces and problematic characters
     // Replace various Unicode spaces with regular space
-    let cleaned = content.replace(/[\u2000-\u200B\u202F\u205F\u3000]/g, ' ')
+    let cleaned = sanitized.replace(/[\u2000-\u200B\u202F\u205F\u3000]/g, ' ')
 
     // Replace non-breaking hyphen (U+2011) with regular hyphen for KaTeX compatibility
     // This must happen BEFORE protecting math expressions so it normalizes inside math too

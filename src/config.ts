@@ -17,13 +17,22 @@ export const VISION_MODELS = [
 
 // Fast text models for lightweight answers
 export const QUICK_MODELS = [
-  'llama-3.3-70b-versatile'
+  'moonshotai/kimi-k2-instruct-0905',
+  'moonshotai/kimi-k2-instruct',
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant'
 ] as const
 
 // Auto mode cycles through vision first, then quick text
 export const AUTO_MODELS = [
   ...VISION_MODELS,
   ...QUICK_MODELS
+] as const
+
+// Website visiting models (Compound systems with URL analysis capability)
+export const WEBSITE_VISIT_MODELS = [
+  'groq/compound',
+  'groq/compound-mini'
 ] as const
 
 // Reasoning mode: Models that support native reasoning format
@@ -52,6 +61,11 @@ export function isGPTOSSModel(model: string): boolean {
 // Helper function to check if a model is Qwen
 export function isQwenModel(model: string): boolean {
   return QWEN_MODELS.includes(model as any)
+}
+
+// Helper function to check if a model is Compound (supports website visiting)
+export function isCompoundModel(model: string): boolean {
+  return WEBSITE_VISIT_MODELS.includes(model as any)
 }
 
 // Classification models for smart routing (support structured outputs)

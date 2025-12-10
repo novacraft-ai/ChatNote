@@ -80,23 +80,42 @@ export interface StreamingChunk {
 /**
  * Get auth token from localStorage
  */
-function getAuthToken(): string | null {
+export function getAuthToken(): string | null {
   return localStorage.getItem('auth_token')
 }
 
 /**
  * Get fallback models for a given model
+ * For website visiting models, only return Compound models (no fallback to other models)
+ * since other models cannot process URLs
  */
 function getFallbackModels(model: string): string[] {
+  // Website visiting models: only use Compound models, no fallback to non-URL-capable models
+  if (model.startsWith('groq/compound')) {
+    // Return all Compound models starting from the requested one
+    const compoundModels = ['groq/compound', 'groq/compound-mini']
+    const index = compoundModels.indexOf(model)
+    if (index !== -1) {
+      return compoundModels.slice(index)
+    }
+    return [model]
+  }
+  
   // Auto mode models
   if (AUTO_MODELS.includes(model as any)) {
     const index = AUTO_MODELS.indexOf(model as any)
     return AUTO_MODELS.slice(index)
   }
   
-  // Reasoning mode models
+  // Reasoning mode models (excluding Compound to prevent them from being fallback for non-URL requests)
   if (REASONING_MODELS.includes(model as any)) {
     const index = REASONING_MODELS.indexOf(model as any)
+    // Filter out Compound models to prevent fallback to them for non-URL requests
+    const reasoningModelsNonCompound = REASONING_MODELS.filter((m: any) => !m.startsWith('groq/compound'))
+    const reasoningIndex = reasoningModelsNonCompound.indexOf(model as any)
+    if (reasoningIndex !== -1) {
+      return reasoningModelsNonCompound.slice(reasoningIndex)
+    }
     return REASONING_MODELS.slice(index)
   }
   // Single model, no fallback
@@ -202,6 +221,70 @@ interface ChatRequestOptions {
   toolChoice?: 'auto' | 'required' | 'none'
 }
 
+function mergeBrowserSearchSources(existing: SearchResult[] = [], additions?: SearchResult[]): SearchResult[] {
+  if (!additions || additions.length === 0) {
+    return existing
+  }
+
+  const merged = [...existing]
+  const seen = new Set(
+    merged.map((source, index) => source?.url || `${source?.title || 'source'}-${index}`)
+  )
+
+  for (const source of additions) {
+    if (!source) continue
+    const key = source.url || `${source.title || 'source'}-${source.content || ''}`
+    if (!seen.has(key)) {
+      merged.push(source)
+      seen.add(key)
+    }
+  }
+
+  return merged
+}
+
+/**
+ * Get optimized temperature for different model types and use cases
+ * - Reasoning models: lower temps (0.5-0.6) for consistent proofs
+ * - Vision models: medium temps (0.6-0.7) for balanced analysis
+ * - Quick models: medium-high temps (0.7) for fluent responses
+ */
+function getOptimizedTemperature(model: string, isReasoningMode: boolean): number {
+  // For reasoning models (GPT-OSS, Qwen, Compound) - prefer consistency
+  if (isReasoningMode || model.includes('gpt-oss') || model.includes('qwen') || model.includes('groq/compound')) {
+    return 0.55 // Lower for consistent mathematical proofs and structured reasoning
+  }
+  
+  // For vision models - balanced approach
+  if (model.includes('llama-4-scout') || model.includes('llama-4-maverick')) {
+    return 0.65 // Medium temperature for balanced visual analysis
+  }
+  
+  // For quick text models - slightly higher for fluency
+  return 0.7 // Default: good balance of consistency and creativity
+}
+
+/**
+ * Get optimized max tokens based on model capabilities and use case
+ * - Reasoning models: higher limits (4000-8000) for complex proofs
+ * - Vision models: higher limits (4000) for detailed analysis
+ * - Quick models: standard limits (3000) for speed
+ */
+function getOptimizedMaxTokens(model: string, isReasoningMode: boolean): number {
+  // For reasoning models - allow more tokens for complex reasoning
+  if (isReasoningMode || model.includes('gpt-oss') || model.includes('qwen') || model.includes('groq/compound')) {
+    return isReasoningMode ? 8000 : 4000 // More tokens for reasoning tasks
+  }
+  
+  // For vision models - good amount for detailed analysis
+  if (model.includes('llama-4-scout') || model.includes('llama-4-maverick')) {
+    return 4000
+  }
+  
+  // For quick text models - balanced for speed
+  return 3000
+}
+
 export async function sendChatMessage(
   messages: ChatMessage[],
   context?: string,
@@ -229,8 +312,8 @@ export async function sendChatMessage(
         messages,
         context,
         model: tryModel,
-        temperature: 0.7,
-        maxTokens: 3000,
+        temperature: getOptimizedTemperature(tryModel, isReasoning),
+        maxTokens: getOptimizedMaxTokens(tryModel, isReasoning),
         stream: !!onChunk
       }
 
@@ -368,7 +451,7 @@ export async function sendChatMessage(
               
               // Check for metadata event (our custom event from backend)
               if (parsed.type === 'metadata' && parsed.browserSearchSources) {
-                browserSearchSources = parsed.browserSearchSources
+                browserSearchSources = mergeBrowserSearchSources(browserSearchSources, parsed.browserSearchSources)
                 continue
               }
               
@@ -389,9 +472,14 @@ export async function sendChatMessage(
               // Check for executed_tools in delta or message
               const executedTools = delta?.executed_tools || message?.executed_tools
               if (executedTools && executedTools.length > 0) {
-                const searchTool = executedTools.find(tool => tool.search_results)
-                if (searchTool?.search_results?.results) {
-                  browserSearchSources = searchTool.search_results.results
+                const aggregatedResults: SearchResult[] = []
+                for (const tool of executedTools) {
+                  if (tool?.search_results?.results) {
+                    aggregatedResults.push(...tool.search_results.results)
+                  }
+                }
+                if (aggregatedResults.length > 0) {
+                  browserSearchSources = mergeBrowserSearchSources(browserSearchSources, aggregatedResults)
                 }
               }
             } catch (e) {
@@ -411,7 +499,7 @@ export async function sendChatMessage(
               
               // Check for metadata event
               if (parsed.type === 'metadata' && parsed.browserSearchSources) {
-                browserSearchSources = parsed.browserSearchSources
+                browserSearchSources = mergeBrowserSearchSources(browserSearchSources, parsed.browserSearchSources)
               }
               
               const delta = parsed.choices?.[0]?.delta
@@ -429,9 +517,14 @@ export async function sendChatMessage(
               // Check for executed_tools
               const executedTools = delta?.executed_tools || message?.executed_tools
               if (executedTools && executedTools.length > 0) {
-                const searchTool = executedTools.find(tool => tool.search_results)
-                if (searchTool?.search_results?.results) {
-                  browserSearchSources = searchTool.search_results.results
+                const aggregatedResults: SearchResult[] = []
+                for (const tool of executedTools) {
+                  if (tool?.search_results?.results) {
+                    aggregatedResults.push(...tool.search_results.results)
+                  }
+                }
+                if (aggregatedResults.length > 0) {
+                  browserSearchSources = mergeBrowserSearchSources(browserSearchSources, aggregatedResults)
                 }
               }
             } catch (e) {
@@ -469,17 +562,23 @@ export async function sendChatMessage(
       
       // Extract browser search metadata from backend
       const usedBrowserSearch = data.metadata?.browserSearch || false
-      const browserSearchSources = data.metadata?.browserSearchSources || []
+      let browserSearchSources = data.metadata?.browserSearchSources || []
       
       // Extract search results and format as sources
       // Only for Advanced mode models (groq/compound) that support web search
       let sourcesSection = ''
       if (executedTools && executedTools.length > 0) {
-        const searchTool = executedTools.find(tool => tool.search_results)
-        if (searchTool?.search_results?.results && searchTool.search_results.results.length > 0) {
-          const results = searchTool.search_results.results
+        const aggregatedResults: SearchResult[] = []
+        for (const tool of executedTools) {
+          if (tool?.search_results?.results && tool.search_results.results.length > 0) {
+            aggregatedResults.push(...tool.search_results.results)
+          }
+        }
+        
+        if (aggregatedResults.length > 0) {
+          browserSearchSources = mergeBrowserSearchSources(browserSearchSources, aggregatedResults)
           sourcesSection = '\n\n---\n\n## Sources\n\n'
-          results.forEach((result, index) => {
+          aggregatedResults.forEach((result, index) => {
             // Format as markdown links with title and URL
             sourcesSection += `${index + 1}. [${result.title}](${result.url})\n`
           })

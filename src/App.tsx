@@ -182,6 +182,7 @@ function AppContent() {
       // If the user hasn't consented yet we defer drive checks until they agree
     } else if (!isAuthenticated) {
       setDriveAuthChecked(false)
+      setIsDriveAuthorized(false)
       hasMarkedInitialHistoryRef.current = false
       // End note mode tracking before logout (handled in AuthContext, but ensure it's done)
       analytics.endNoteModeTracking()
@@ -440,7 +441,18 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
   }
 
   const toggleChatLayout = () => {
-    setChatLayout(prev => prev === 'floating' ? 'split' : 'floating')
+    // If in split layout and chat is hidden, just show the chat
+    if (chatLayout === 'split' && !isChatVisible) {
+      setChatVisible(true)
+      return
+    }
+    // Otherwise, toggle the layout
+    const newLayout = chatLayout === 'floating' ? 'split' : 'floating'
+    setChatLayout(newLayout)
+    // If switching to split layout and chat is hidden, show it
+    if (newLayout === 'split' && !isChatVisible) {
+      setChatVisible(true)
+    }
   }
 
   const handleModeChange = (mode: 'guide-me-learn' | 'quiz-me' | null) => {
@@ -1071,16 +1083,19 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
             onDragStateChange={handleDividerDragStateChange}
           />
         )}
-        {isChatVisible && pdfFile && (
+        {pdfFile && (
           <div 
             className={`chat-container ${chatLayout === 'floating' ? 'floating-chat' : 'split-chat'} ${showKnowledgeNotes ? 'knowledge-notes-open' : ''} ${isDividerDragging ? 'divider-dragging' : ''}`}
-            style={chatLayout === 'split'
-              ? {
-                  '--chat-width': `${chatWidth}px`,
-                  '--chat-min-width': `${chatWidthLimits.min}px`,
-                  '--chat-max-width': `${chatWidthLimits.max}px`,
-                } as React.CSSProperties
-              : undefined}
+            style={{
+              ...((chatLayout === 'split'
+                ? {
+                    '--chat-width': `${chatWidth}px`,
+                    '--chat-min-width': `${chatWidthLimits.min}px`,
+                    '--chat-max-width': `${chatWidthLimits.max}px`,
+                  }
+                : {}) as React.CSSProperties),
+              display: isChatVisible ? 'flex' : 'none'
+            }}
           >
             <ChatGPTEmbedded
               selectedText={selectedText}

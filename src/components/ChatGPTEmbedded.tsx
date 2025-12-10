@@ -1,14 +1,20 @@
+// Chat interface component
 import { useState, useRef, useEffect } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
-import { sendChatMessage, type ChatMessage } from '../services/authenticatedChatService'
+import { useChatVisibility } from '../contexts/ChatVisibilityContext'
+import { sendChatMessage, type ChatMessage, type SearchResult } from '../services/authenticatedChatService'
 import { updateFreeTrialCount } from '../services/authService'
-import { AUTO_MODELS, REASONING_MODELS, CLASSIFICATION_MODELS, BACKEND_URL, QUICK_MODELS, VISION_MODELS } from '../config'
+import { AUTO_MODELS, REASONING_MODELS, CLASSIFICATION_MODELS, BACKEND_URL, QUICK_MODELS, VISION_MODELS, WEBSITE_VISIT_MODELS } from '../config'
+import { getModelSpecificInstructions, MODEL_INSTRUCTIONS } from '../prompts/modelInstructions'
 import ModelModeToggle, { type ModelMode } from './ModelModeToggle'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
+import rehypeHighlight from 'rehype-highlight'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize, { defaultSchema as rehypeDefaultSchema } from 'rehype-sanitize'
 import 'katex/dist/katex.min.css'
 import { preprocessMathContent } from '../utils/markdownUtils'
 import './ChatGPTEmbedded.css'
@@ -21,6 +27,161 @@ import type { QuizQuestionType } from '../types/interactionModes'
 import { generateQuiz, evaluateAnswer, canGenerateQuiz } from '../services/quizService'
 import { analytics } from '../services/analyticsService'
 import type { PDFExtractionResult, RAGContextResult } from '../types/pdf'
+
+function removeDuplicateCitationPills(text: string): string {
+  if (!text) return ''
+  const duplicateRegex = /(<sup class="browser-citation-pill"[^>]*>)(\d+)(<\/sup>)(?:\s|&nbsp;)*(<sup class="browser-citation-pill"[^>]*>)(\d+)(<\/sup>)/g
+  let previousText = text
+  let deduped = text
+  do {
+    previousText = deduped
+    deduped = deduped.replace(duplicateRegex, (match, open1, index1, close1, open2, index2, close2) => {
+      if (index1 === index2 && open1 === open2 && close1 === close2) {
+        return `${open1}${index1}${close1}`
+      }
+      return match
+    })
+  } while (deduped !== previousText)
+  return deduped
+}
+
+function formatInlineBrowserCitations(text: string): string {
+  if (!text) return ''
+
+  const citationRegex = /【(\d+)†([^】]+)】/g
+
+  const replaced = text.replace(citationRegex, (_match, rawIndex, rawLines) => {
+    const sourceIndex = String(rawIndex).trim()
+    const lines = typeof rawLines === 'string' ? rawLines : ''
+
+    let tooltipDetail = ''
+    const rangeMatch = lines.match(/L?(\d+)\s*-\s*L?(\d+)/i)
+    if (rangeMatch) {
+      const start = rangeMatch[1]
+      const end = rangeMatch[2]
+      tooltipDetail = start === end ? `Line ${start}` : `Lines ${start}\u2013${end}`
+    } else {
+      const singleLineMatch = lines.match(/L?(\d+)/i)
+      if (singleLineMatch) {
+        tooltipDetail = `Line ${singleLineMatch[1]}`
+      } else if (lines.trim()) {
+        tooltipDetail = lines.replace(/[^\w\s-]/g, '').trim()
+      }
+    }
+
+    const tooltipParts = [`Source ${sourceIndex}`]
+    if (tooltipDetail) {
+      tooltipParts.push(tooltipDetail)
+    }
+    const tooltip = tooltipParts.join(' · ')
+
+    return ` <sup class="browser-citation-pill" title="${tooltip}">${sourceIndex}</sup>`
+  })
+
+  return removeDuplicateCitationPills(replaced)
+}
+
+function extractUsedBrowserSourceIndices(content?: string): number[] {
+  if (typeof content !== 'string' || content.length === 0) return []
+  const matches = new Set<number>()
+  const regex = /【(\d+)†/g
+  let match
+  while ((match = regex.exec(content)) !== null) {
+    const index = Number.parseInt(match[1], 10)
+    if (!Number.isNaN(index)) {
+      matches.add(index)
+    }
+  }
+  return Array.from(matches).sort((a, b) => a - b)
+}
+
+function getSourceDomain(url?: string): string {
+  if (!url) return 'Source'
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '')
+    return hostname || url
+  } catch {
+    return url
+  }
+}
+
+function getBrowserSourceTitle(source: SearchResult): string {
+  const rawTitle = source?.title?.trim() || ''
+  if (rawTitle) {
+    const cleaned = rawTitle.replace(/-?\s*viewing lines?\s*\[[^\]]+\].*$/i, '').trim()
+    if (cleaned) {
+      return cleaned
+    }
+  }
+  return getSourceDomain(source?.url)
+}
+
+function getBrowserSourceLineRange(source: SearchResult): string | null {
+  const content = source?.content || ''
+  if (!content) return null
+
+  const lineMatch = content.match(/lines?\s*\[(\d+)\s*-\s*(\d+)\]/i)
+  if (lineMatch) {
+    const start = lineMatch[1]
+    const end = lineMatch[2]
+    return start === end ? `Line ${start}` : `Lines ${start}\u2013${end}`
+  }
+  return null
+}
+
+function getBrowserSourceSnippet(source: SearchResult): string | null {
+  const content = source?.content || ''
+  if (!content) return null
+
+  const normalized = content.replace(/\s+/g, ' ').trim()
+  if (!normalized) return null
+
+  const cleaned = normalized.replace(/viewing lines?\s*\[[^\]]+\]\s*of\s*\d+/i, '').trim()
+  const finalText = cleaned || normalized
+
+  if (!finalText) return null
+  return finalText.length > 180 ? `${finalText.slice(0, 177)}...` : finalText
+}
+
+const markdownSanitizeSchema = {
+  ...rehypeDefaultSchema,
+  attributes: {
+    ...rehypeDefaultSchema.attributes,
+    '*': [
+      ...((rehypeDefaultSchema.attributes?.['*']) || []),
+      'className'
+    ],
+    a: [
+      ...((rehypeDefaultSchema.attributes?.a) || []),
+      'target',
+      'rel'
+    ],
+    sup: [
+      ...((rehypeDefaultSchema.attributes?.sup) || []),
+      'className',
+      'title',
+      'id'
+    ]
+  }
+}
+
+const katexOptions = {
+  strict: false,
+  throwOnError: false,
+  errorColor: '#cc0000',
+  macros: {},
+  fleqn: false,
+  output: 'html',
+  trust: false
+}
+
+const markdownRehypePlugins: any[] = [
+  rehypeRaw,
+  [rehypeSanitize, markdownSanitizeSchema],
+  rehypeHighlight,
+  [rehypeKatex, katexOptions]
+]
+
 
 /**
  * Extract keywords from user question for relevance matching
@@ -253,6 +414,39 @@ async function extractRelevantPDFContext(
   }
 
   const maxChars = maxTokens * 4 // Convert tokens to approximate characters
+  
+  // Check if user is asking about a specific page number
+  const pageNumberMatch = userQuestion.match(/page\s+(\d+)/i)
+  const hasPageQuestion = !!pageNumberMatch
+  
+  // If asking about a specific page, try to extract that page context
+  if (hasPageQuestion && pdfDocument?.pages) {
+    const pageNum = parseInt(pageNumberMatch![1])
+    const pageIndex = pageNum - 1 // Convert to 0-based index
+    
+    if (pageIndex >= 0 && pageIndex < pdfDocument.pages.length) {
+      // Get the target page content plus surrounding context for continuity
+      const startPage = Math.max(0, pageIndex - 1)
+      const endPage = Math.min(pdfDocument.pages.length - 1, pageIndex + 1)
+      
+      let context = ''
+      for (let i = startPage; i <= endPage; i++) {
+        if (pdfDocument.pages[i]?.text) {
+          context += `\n--- Page ${i + 1} ---\n${pdfDocument.pages[i].text}`
+        }
+      }
+      
+      if (context.length > 100) {
+        // Truncate to fit token limit while preserving page markers
+        if (context.length > maxChars) {
+          return wrapResult(truncateText(context, maxTokens))
+        }
+        return wrapResult(context)
+      }
+    }
+  }
+  
+  // If full PDF fits in token budget, send everything (preferred for consistency)
   if (pdfText.length <= maxChars) {
     return wrapResult(pdfText)
   }
@@ -320,33 +514,10 @@ function buildToolSchemasSummary(): string {
 }
 
 function buildSystemPromptPrefix(pdfDocument?: PDFExtractionResult | null, pdfText?: string): string {
-  const katexRules = `You are a mathematical assistant. All mathematical equations you generate must be 100% compatible with the KaTeX rendering engine.
-
-Follow these strict rules:
-
-1. Delimiters:
-   - For block-level equations, use $$...$$.
-   - For inline equations, use \(...\).
-   - Do not use single $ or \\[...\\].
-
-2. Alignment:
-   - Use aligned environment.
-   - Do not use align/align*/eqnarray.
-
-3. Formatting:
-   - Use standard LaTeX commands; wrap text in \\text{...}.
-   - Use \\frac for fractions; pmatrix/bmatrix/cases for matrices or cases.
-
-4. Dollar amounts:
-   - Keep dollar amounts in plain text (no math mode) unless part of a formula.
-
-5. Consistency:
-   - Preserve spaces between numbers and words.`
-
   const pdfSummary = buildPdfTocSummary(pdfDocument, pdfText)
   const toolsSummary = buildToolSchemasSummary()
 
-  return `${katexRules}\n\n${toolsSummary}\n\n${pdfSummary}`
+  return `${MODEL_INSTRUCTIONS}\n\n${toolsSummary}\n\n${pdfSummary}`
 }
 
 /**
@@ -529,12 +700,29 @@ function selectModelForRequest(
   mode: ModelMode,
   classification: QuestionClassification,
   routing: RoutingDecision,
-  hasUploadedImages: boolean
+  hasUploadedImages: boolean,
+  userQuestion?: string
 ): ModelSelection {
   const needsVision = mode !== 'thinking' && (hasUploadedImages || routing.needsVisionModel || classification.needsVision)
   const needsRealtime = routing.needsRealtimeTools || classification.needsRealtime
   const needsReasoning = routing.needsReasoning || classification.answerComplexity === 'reasoning'
   const needsCode = routing.needsCodeInterpreter || classification.needsCodeExecution
+
+  // Detect if user provided a URL (for website visiting)
+  const hasUrl = userQuestion ? /https?:\/\/[^\s]+/i.test(userQuestion) : false
+  const compoundModel = WEBSITE_VISIT_MODELS[0]  // groq/compound (preferred) or groq/compound-mini
+
+  // Website visiting takes priority when URL is detected (works for all modes)
+  // Website visiting is better than other models since it natively reads URLs
+  if (hasUrl && compoundModel) {
+    return {
+      model: compoundModel,
+      includeReasoning: mode === 'thinking',
+      useBrowserSearch: false,  // Compound has built-in website visiting
+      useCodeInterpreter: false,
+      isVisionRequest: false
+    }
+  }
 
   // Vision models take priority when vision is needed and available
   if (needsVision && DEFAULT_VISION_MODEL) {
@@ -1131,7 +1319,6 @@ function extractThinking(content: string): { thinking: string | null; mainConten
   return { thinking: thinking || null, mainContent }
 }
 
-
 interface ChatGPTEmbeddedProps {
   selectedText: string
   pdfText: string
@@ -1156,6 +1343,7 @@ interface ChatGPTEmbeddedProps {
 function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPageNumber, onCreateKnowledgeNote, onClearSelectedText, onAddAnnotationToPDF, onOpenKnowledgeNotes, onToggleKnowledgeNotes, showKnowledgeNotes, onModeChange, resetModeRef, modelMode: externalModelMode, onModelModeChange }: ChatGPTEmbeddedProps) {
   const { theme } = useTheme()
   const { isAuthenticated, user, loading: authLoading } = useAuth()
+  const { setChatVisible } = useChatVisibility()
 
   // Suppress KaTeX warnings about non-breaking hyphens (we normalize them in preprocessing)
   useEffect(() => {
@@ -1202,6 +1390,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
   const [messages, setMessages] = useState<Array<ChatMessage & { id: string; selectedTextAtSend?: string; pageNumberAtSend?: number; textYPositionAtSend?: number; thinking?: string }>>([])
   const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({}) // Track which thinking sections are expanded
   const [expandedPdfContext, setExpandedPdfContext] = useState<Record<string, boolean>>({}) // Track which PDF context sections are expanded
+  const [expandedBrowserSources, setExpandedBrowserSources] = useState<Record<string, boolean>>({})
   // Track multiple responses per message: messageId -> array of responses
   const [messageResponses, setMessageResponses] = useState<Record<string, Array<{ content: string; thinking?: string; timestamp: number }>>>({})
   // Track current response index for each message: messageId -> current index
@@ -1868,7 +2057,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
       }
     }
 
-    const modelSelection = selectModelForRequest(modelMode, classification, routing, uploadedImages.length > 0)
+    const modelSelection = selectModelForRequest(modelMode, classification, routing, uploadedImages.length > 0, userInput)
     const targetModel = modelSelection.model
     const shouldExposeThinking = modelMode === 'thinking' || modelSelection.includeReasoning
 
@@ -2046,8 +2235,16 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
             content: msg.content,
           }))
         }
+      } else if (messages.length > 0) {
+        // By default, always include at least the last round of conversation (last 2 messages: user + assistant)
+        // This ensures context continuity even if routing didn't explicitly request history
+        const minLastRound = Math.min(2, messages.length)
+        conversationHistory = messages.slice(-minLastRound).map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+        }))
       } else {
-        // No chat history needed based on routing
+        // No messages to include
         conversationHistory = []
       }
 
@@ -2076,7 +2273,14 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
       }
 
       // Build stable system prompt prefix (KaTeX rules + tool schemas + PDF summary/TOC) for prompt caching
-      const systemPromptContent = buildSystemPromptPrefix(pdfDocument || null, pdfText)
+      let systemPromptContent = buildSystemPromptPrefix(pdfDocument || null, pdfText)
+      
+      // Add model-specific instructions if applicable
+      const modelSpecificInstructions = getModelSpecificInstructions(targetModel)
+      if (modelSpecificInstructions) {
+        systemPromptContent += '\n\n' + modelSpecificInstructions
+      }
+      
       const systemPrompt: ChatMessage = {
         role: 'system',
         content: systemPromptContent
@@ -2537,7 +2741,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
       const originalSelectedText = userMessage.selectedTextAtSend
 
       // Build conversation history up to (but not including) this assistant message
-      const conversationHistory: ChatMessage[] = messages.slice(0, assistantMessageIndex).map((msg) => ({
+      let conversationHistory: ChatMessage[] = messages.slice(0, assistantMessageIndex).map((msg) => ({
         role: msg.role,
         content: msg.content
       }))
@@ -2553,6 +2757,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
         }
       }
 
+
       // Use new classification and routing system for regeneration
       const classification = await classifyQuestion(
         questionText,
@@ -2566,14 +2771,35 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
         modelMode,
         classification,
         routing,
-        false // No uploaded images in regeneration
+        false, // No uploaded images in regeneration
+        questionText
       )
 
       // Compute shouldExposeThinking based on model mode and selection
       const shouldExposeThinking = modelMode === 'thinking' || modelSelection.includeReasoning
 
+      // Now build system prompt and prepend to conversation history (same as initial send)
+      {
+        const targetModel = modelSelection?.model || (modelMode === 'auto' ? REASONING_MODELS[0] : modelSelection?.model)
+        let systemPromptContent = buildSystemPromptPrefix(pdfDocument || null, pdfText)
+        const modelSpecificInstructions = getModelSpecificInstructions(targetModel)
+        if (modelSpecificInstructions) {
+          systemPromptContent += '\n\n' + modelSpecificInstructions
+        }
+        const systemPrompt: ChatMessage = {
+          role: 'system',
+          content: systemPromptContent
+        }
+        // Only prepend if not already present
+        if (!(conversationHistory.length > 0 && conversationHistory[0]?.role === 'system')) {
+          conversationHistory = [systemPrompt, ...conversationHistory]
+        }
+      }
+
       // Now update context based on routing decision
-      if (pdfText && pdfText.trim().length > 0 && !originalSelectedText) {
+      // Always extract RAG context if PDF exists, even if there was previously selected text
+      // This ensures context is optimized for the current model and its token budget
+      if (pdfText && pdfText.trim().length > 0) {
         const ragResult = await extractRelevantPDFContext(
           pdfText,
           pdfDocument || null,
@@ -3238,6 +3464,36 @@ ${question.question}
         </div>
       )}
 
+      {/* Split layout: Chat panel header bar with buttons */}
+      {layout === 'split' && (
+        <div className={`chat-panel-header ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
+          <span className="chat-panel-title">Chat</span>
+          <div className="chat-panel-header-actions">
+            <button onClick={handleClearChat} className={`clear-button ${clearConfirming ? 'confirming' : ''}`} title={clearConfirming ? 'Click again to confirm' : 'Clear chat'} disabled={messages.length === 0}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+              </svg>
+              <span className="clear-button-text">{clearConfirming ? 'Confirm' : 'Clear'}</span>
+            </button>
+            <button 
+              onClick={() => {
+                setChatVisible(false)
+              }}
+              className="close-chat-button"
+              title="Close chat panel"
+              aria-label="Close chat panel"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {layout === 'floating' && (
         <div className={`model-selector-bar ${theme === 'dark' ? 'theme-dark' : 'theme-light'}`}>
           <div className="model-selector-wrapper" ref={modelSelectorRef}>
@@ -3248,48 +3504,16 @@ ${question.question}
                 disabled={!canUseChat}
               />
             </div>
-            {isVisionModel() && (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleImageUpload}
-                  style={{ display: 'none' }}
-                />
-                  <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    fileInputRef.current?.click()
-                  }}
-                  className="image-upload-button"
-                  title="Upload images"
-                  disabled={!canUseChat}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                    <circle cx="8.5" cy="8.5" r="1.5" />
-                    <polyline points="21 15 16 10 5 21" />
-                  </svg>
-                  <span className="image-upload-text">Image</span>
-                </button>
-              </>
-            )}
           </div>
           <div className="header-actions">
-            {messages.length > 0 && (
-              <button onClick={handleClearChat} className={`clear-button ${clearConfirming ? 'confirming' : ''}`} title={clearConfirming ? 'Click again to confirm' : 'Clear chat'}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 6h18" />
-                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                </svg>
-                <span className="clear-button-text">{clearConfirming ? 'Confirm' : 'Clear'}</span>
-              </button>
-            )}
+            <button onClick={handleClearChat} disabled={messages.length === 0} className={`clear-button ${clearConfirming ? 'confirming' : ''}`} title={clearConfirming ? 'Click again to confirm' : 'Clear chat'}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+              </svg>
+              <span className="clear-button-text">{clearConfirming ? 'Confirm' : 'Clear'}</span>
+            </button>
             {layout === 'floating' && (
               <>
                 {/* Layout switch moved to AnnotationToolbar (in PDF viewer) */}
@@ -3567,15 +3791,7 @@ ${question.question}
                                   <div className="markdown-content">
                                     <ReactMarkdown
                                       remarkPlugins={[remarkGfm, remarkMath]}
-                                      rehypePlugins={[[rehypeKatex, {
-                                        strict: false, // Don't throw on parse errors
-                                        throwOnError: false, // Don't throw on render errors
-                                        errorColor: '#cc0000',
-                                        macros: {},
-                                        fleqn: false,
-                                        output: 'html',
-                                        trust: false,
-                                      }]]}
+                                      rehypePlugins={markdownRehypePlugins}
                                     >
                                       {(() => {
                                         try {
@@ -3612,15 +3828,7 @@ ${question.question}
                             <div className="markdown-content">
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm, remarkMath]}
-                                rehypePlugins={[[rehypeKatex, {
-                                  strict: false, // Don't throw on parse errors
-                                  throwOnError: false, // Don't throw on render errors
-                                  errorColor: '#cc0000',
-                                  macros: {},
-                                  fleqn: false,
-                                  output: 'html',
-                                  trust: false,
-                                }]]}
+                                rehypePlugins={markdownRehypePlugins}
                                 components={{
                                   table: ({ children, ...props }) => (
                                     <div className="table-scroll-wrapper">
@@ -3642,11 +3850,82 @@ ${question.question}
                                     }
                                     return <div {...props} className={className}>{children}</div>
                                   },
-                                  pre: ({ children, ...props }) => (
-                                    <pre className="code-scroll-wrapper" {...props}>
-                                      {children}
-                                    </pre>
-                                  ),
+                                  pre: ({ children, className, ...props }) => {
+                                    // Extract language from code element's className
+                                    // React markdown puts language class on the code element, not pre
+                                    let language = ''
+                                    let isCodeBlock = false
+                                    
+                                    // Try to extract from children (code element)
+                                    const extractLanguage = (node: any): string | null => {
+                                      if (node?.props?.className && typeof node.props.className === 'string') {
+                                        const match = node.props.className.match(/language-(\w+)/)
+                                        if (match) {
+                                          isCodeBlock = true
+                                          return match[1].toUpperCase()
+                                        }
+                                      }
+                                      if (node?.props?.children) {
+                                        const childNodes = Array.isArray(node.props.children) ? node.props.children : [node.props.children]
+                                        for (const child of childNodes) {
+                                          const result = extractLanguage(child)
+                                          if (result) return result
+                                        }
+                                      }
+                                      return null
+                                    }
+                                    
+                                    const detectedLanguage = extractLanguage(children)
+                                    if (detectedLanguage) {
+                                      language = detectedLanguage
+                                    }
+                                    
+                                    const [isCopied, setIsCopied] = useState(false)
+                                    
+                                    const handleCopyCode = () => {
+                                      // Extract text content from children
+                                      let codeText = ''
+                                      const extractText = (node: any): void => {
+                                        if (typeof node === 'string') {
+                                          codeText += node
+                                        } else if (node?.props?.children) {
+                                          const childNodes = Array.isArray(node.props.children) ? node.props.children : [node.props.children]
+                                          childNodes.forEach((child: any) => extractText(child))
+                                        }
+                                      }
+                                      extractText(children)
+                                      
+                                      navigator.clipboard.writeText(codeText).then(() => {
+                                        setIsCopied(true)
+                                        setTimeout(() => setIsCopied(false), 2000)
+                                      })
+                                    }
+                                    
+                                    return (
+                                      <pre className={isCodeBlock ? "code-scroll-wrapper" : "output-scroll-wrapper"} data-language={language} {...props}>
+                                        {isCodeBlock && (
+                                          <button 
+                                            className={`copy-code-button ${isCopied ? 'copied' : ''}`}
+                                            onClick={handleCopyCode}
+                                            title={isCopied ? "Copied!" : "Copy code"}
+                                          >
+                                            {isCopied ? (
+                                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <polyline points="20 6 9 17 4 12"></polyline>
+                                              </svg>
+                                            ) : (
+                                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                                                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                                              </svg>
+                                            )}
+                                            {isCopied ? 'COPIED' : 'COPY'}
+                                          </button>
+                                        )}
+                                        {children}
+                                      </pre>
+                                    )
+                                  },
                                 }}
                               >
                                 {(() => {
@@ -3655,6 +3934,7 @@ ${question.question}
                                       // Strip <tool> and <think> tags from model responses
                                       let processed = message.content.replace(/<tool>[\s\S]*?<\/tool>/gi, '').replace(/<think>[\s\S]*?<\/think>/gi, '')
                                       processed = preprocessMathContent(processed)
+                                      processed = formatInlineBrowserCitations(processed)
 
                                       // Final safety check: ensure no non-breaking hyphens before passing to ReactMarkdown
                                       if (processed.includes('\u2011')) {
@@ -3923,20 +4203,110 @@ ${question.question}
                       </div>
                     )}
                     {/* Show browser search sources when browser search was used */}
-                    {message.role === 'assistant' && (message as any)?.usedBrowserSearch && (message as any)?.browserSearchSources && (message as any).browserSearchSources.length > 0 && (
-                      <div className="message-citations">
-                        <span className="message-citations-label">Sources:</span>
-                        <ul className="message-citations-list">
-                          {(message as any).browserSearchSources.map((source: any, idx: number) => (
-                            <li key={idx}>
-                              <a href={source.url} target="_blank" rel="noopener noreferrer">
-                                {source.title}
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                    {message.role === 'assistant' && (message as any)?.usedBrowserSearch && (message as any)?.browserSearchSources && (message as any).browserSearchSources.length > 0 && (() => {
+                      const browserSources = (message as any).browserSearchSources as SearchResult[]
+                      const isExpanded = expandedBrowserSources[message.id] ?? false
+                      const usedSourceIndices = extractUsedBrowserSourceIndices(typeof message.content === 'string' ? message.content : '')
+                      const usedCount = usedSourceIndices.length
+                      const totalCount = browserSources.length
+                      const usageSummary = usedCount > 0
+                        ? `${usedCount} cited`
+                        : 'No explicit citations'
+                      
+                      return (
+                        <div className={`message-citations ${isExpanded ? 'expanded' : 'collapsed'}`}>
+                          <div className="message-citations-header">
+                            <span className="message-citations-label">Sources</span>
+                            <span className="message-citations-count">{usageSummary} • {totalCount} retrieved</span>
+                          </div>
+                          <button
+                            className={`message-citations-toggle ${isExpanded ? 'expanded' : ''}`}
+                            onClick={() => {
+                              setExpandedBrowserSources(prev => ({
+                                ...prev,
+                                [message.id]: !isExpanded
+                              }))
+                            }}
+                            aria-expanded={isExpanded}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              style={{
+                                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                                transition: 'transform 0.2s'
+                              }}
+                            >
+                              <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                            <span>{isExpanded ? 'Hide sources' : `Show sources (${totalCount})`}</span>
+                          </button>
+                          {isExpanded && (
+                            <ul className="message-citations-list">
+                              {browserSources.map((source: SearchResult, idx: number) => {
+                                const title = getBrowserSourceTitle(source)
+                                const domain = getSourceDomain(source?.url)
+                                const lineRange = getBrowserSourceLineRange(source)
+                                const snippet = getBrowserSourceSnippet(source)
+                                const sourceNumber = idx + 1
+                                const isReferenced = usedSourceIndices.includes(sourceNumber)
+                                
+                                return (
+                                  <li key={idx} id={`browser-source-${sourceNumber}`} className={isReferenced ? 'browser-source-referenced' : undefined}>
+                                    <div className="browser-source-index">{sourceNumber}</div>
+                                    <div className="browser-source-body">
+                                      <a
+                                        href={source.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="browser-source-title"
+                                      >
+                                        {title}
+                                      </a>
+                                      <div className="browser-source-meta">
+                                        <span className="browser-source-domain">{domain}</span>
+                                        {lineRange && (
+                                          <>
+                                            <span className="browser-source-meta-divider" aria-hidden="true">•</span>
+                                            <span className="browser-source-lines">{lineRange}</span>
+                                          </>
+                                        )}
+                                        {isReferenced && (
+                                          <>
+                                            <span className="browser-source-meta-divider" aria-hidden="true">•</span>
+                                            <span className="browser-source-lines">Cited</span>
+                                          </>
+                                        )}
+                                      </div>
+                                      {snippet && (
+                                        <p className="browser-source-snippet">{snippet}</p>
+                                      )}
+                                    </div>
+                                    <a
+                                      href={source.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="browser-source-open"
+                                      aria-label={`Open ${title} in new tab`}
+                                    >
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M18 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                                        <polyline points="15 3 21 3 21 9" />
+                                        <line x1="10" y1="14" x2="21" y2="3" />
+                                      </svg>
+                                    </a>
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      )
+                    })()}
                     {message.role === 'assistant' && message.content && (
                       <div className="message-actions">
                         <button
@@ -4171,63 +4541,23 @@ ${question.question}
                     disabled={!canUseChat || !isAuthenticated}
                   />
                 </div>
-                {isVisionModel() && (
-                  <>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handleImageUpload}
-                      style={{ display: 'none' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        fileInputRef.current?.click()
-                      }}
-                      className="image-upload-button"
-                      title="Upload images"
-                      disabled={!canUseChat || !isAuthenticated}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                        <circle cx="8.5" cy="8.5" r="1.5" />
-                        <polyline points="21 15 16 10 5 21" />
-                      </svg>
-                      <span className="image-upload-text">Image</span>
-                    </button>
-                  </>
-                )}
               </div>
-              {messages.length > 0 && (
-                <button onClick={handleClearChat} className={`clear-button ${clearConfirming ? 'confirming' : ''}`} title={clearConfirming ? 'Click again to confirm' : 'Clear chat'}>
+              <div className="header-actions">
+                <button
+                  onClick={onToggleKnowledgeNotes}
+                  className="layout-toggle-button collapse-button"
+                  title={showKnowledgeNotes ? 'Hide knowledge notes' : 'Show knowledge notes'}
+                  aria-label={showKnowledgeNotes ? 'Hide knowledge notes' : 'Show knowledge notes'}
+                >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 6h18" />
-                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
                   </svg>
-                  <span className="clear-button-text">{clearConfirming ? 'Confirm' : 'Clear'}</span>
                 </button>
-              )}
-                {layout === 'split' && (
-                  <button
-                    onClick={onToggleKnowledgeNotes}
-                    className="layout-toggle-button collapse-button"
-                    title={showKnowledgeNotes ? 'Hide knowledge notes' : 'Show knowledge notes'}
-                    aria-label={showKnowledgeNotes ? 'Hide knowledge notes' : 'Show knowledge notes'}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                      <line x1="16" y1="13" x2="8" y2="13" />
-                      <line x1="16" y1="17" x2="8" y2="17" />
-                    </svg>
-                  </button>
-                )}
                 {/* Layout toggle moved to AnnotationToolbar; don't show it here */}
+              </div>
             </div>
           </>
         )}
@@ -4307,6 +4637,37 @@ ${question.question}
           )}
           
           <div className={`input-wrapper${isDraggingOver && isVisionModel() ? ' drag-over' : ''}${isInputFocused ? ` focus-${modelMode}` : ''}`}>
+            {isVisionModel() && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageUpload}
+                  style={{ display: 'none' }}
+                  disabled={!canUseChat || !isAuthenticated}
+                />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    fileInputRef.current?.click()
+                  }}
+                  className="image-upload-button"
+                  title="Upload images"
+                  disabled={!canUseChat || !isAuthenticated}
+                  style={{ order: -1 }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                </button>
+              </>
+            )}
             <textarea
               ref={inputRef}
               value={input}

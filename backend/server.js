@@ -1442,11 +1442,62 @@ Use this context to provide relevant and accurate answers. If the context doesn'
         : 'You are a helpful assistant helping students learn and understand their study materials.'
     }
 
+    // Helper function to check if a model supports vision (array content)
+    const isVisionModel = (modelName) => {
+      return modelName && (
+        modelName.includes('llama-4-scout') || 
+        modelName.includes('llama-4-maverick')
+      )
+    }
+
+    // Helper function to convert array content to string
+const contentArrayToString = (content) => {
+  if (typeof content === 'string') {
+    return content
+  }
+      if (Array.isArray(content)) {
+        return content
+          .filter(item => item.type === 'text')
+          .map(item => item.text)
+          .join('\n')
+      }
+  return ''
+}
+
+const mergeBrowserSearchSources = (existing = [], additions = []) => {
+  const merged = Array.isArray(existing) ? [...existing] : []
+  const seen = new Set()
+
+  merged.forEach((source, index) => {
+    if (!source) return
+    const key = source.url || `${source.title || 'source'}-${index}`
+    seen.add(key)
+  })
+
+  if (!Array.isArray(additions)) {
+    return merged
+  }
+
+  additions.forEach((source) => {
+    if (!source) return
+    const key = source.url || `${source.title || 'source'}-${source.content || ''}`
+    if (!seen.has(key)) {
+      merged.push(source)
+      seen.add(key)
+    }
+  })
+
+  return merged
+}
+
     // Clean messages to remove unsupported properties (like 'id') that Groq doesn't accept
     // Groq only supports 'role' and 'content' properties
+    // Convert array content to string for non-vision models
     const cleanedMessages = messages.map(msg => ({
       role: msg.role,
-      content: msg.content
+      content: isVisionModel(model) 
+        ? msg.content  // Keep array format for vision models
+        : contentArrayToString(msg.content)  // Convert to string for text-only models
     }))
 
     const allMessages = [systemMessage, ...cleanedMessages]
@@ -1474,14 +1525,30 @@ Use this context to provide relevant and accurate answers. If the context doesn'
     if (req.body.response_format) {
       requestBody.response_format = req.body.response_format
     }
+    
+    // Pass through tool configuration (browser search, code interpreter, etc.)
+    if (Array.isArray(req.body.tools) && req.body.tools.length > 0) {
+      requestBody.tools = req.body.tools
+    }
+    if (req.body.tool_choice) {
+      requestBody.tool_choice = req.body.tool_choice
+    }
+
+    // Build request headers
+    const requestHeaders = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    }
+
+    // Add Groq-Model-Version header for Compound models (required for website visiting)
+    if (requestBody.model && requestBody.model.startsWith('groq/compound')) {
+      requestHeaders['Groq-Model-Version'] = 'latest'
+    }
 
     // Make request to Groq
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
+      headers: requestHeaders,
       body: JSON.stringify(requestBody)
     })
 
@@ -1556,6 +1623,36 @@ Use this context to provide relevant and accurate answers. If the context doesn'
     } else {
       // Non-streaming response
       const data = await response.json()
+      const message = data?.choices?.[0]?.message || {}
+      const executedTools = Array.isArray(message?.executed_tools) ? message.executed_tools : []
+      const aggregatedToolResults = []
+      executedTools.forEach(tool => {
+        if (tool?.search_results?.results && Array.isArray(tool.search_results.results)) {
+          aggregatedToolResults.push(...tool.search_results.results)
+        }
+      })
+      const metadataSources = Array.isArray(data?.metadata?.browserSearchSources)
+        ? data.metadata.browserSearchSources
+        : []
+      const combinedToolSources = aggregatedToolResults.length > 0
+        ? mergeBrowserSearchSources(metadataSources, aggregatedToolResults)
+        : metadataSources
+
+      // Attach metadata so the frontend knows browser search was used
+      const responseMetadata = {}
+      const usedBrowserSearchTool = Array.isArray(requestBody.tools) && requestBody.tools.some(tool => tool.type === 'browser_search')
+      if (usedBrowserSearchTool) {
+        responseMetadata.browserSearch = true
+        responseMetadata.browserSearchSources = combinedToolSources || []
+      }
+
+      if (Object.keys(responseMetadata).length > 0) {
+        data.metadata = {
+          ...(data.metadata || {}),
+          ...responseMetadata
+        }
+      }
+
       res.json(data)
     }
   } catch (error) {
