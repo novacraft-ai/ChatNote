@@ -1392,7 +1392,7 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
   const [expandedPdfContext, setExpandedPdfContext] = useState<Record<string, boolean>>({}) // Track which PDF context sections are expanded
   const [expandedBrowserSources, setExpandedBrowserSources] = useState<Record<string, boolean>>({})
   // Track multiple responses per message: messageId -> array of responses
-  const [messageResponses, setMessageResponses] = useState<Record<string, Array<{ content: string; thinking?: string; timestamp: number }>>>({})
+  const [messageResponses, setMessageResponses] = useState<Record<string, Array<{ content: string; thinking?: string; timestamp: number; pdfCitations?: string[]; usedBrowserSearch?: boolean; browserSearchSources?: SearchResult[] }>>>({})
   // Track current response index for each message: messageId -> current index
   const [currentResponseIndex, setCurrentResponseIndex] = useState<Record<string, number>>({})
   const [input, setInput] = useState('')
@@ -2581,10 +2581,14 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
       const hasThinking = finalThinking && finalThinking.trim().length > 0
 
       // Store this response in messageResponses
+      const existingAssistantMessage = messages.find((msg) => msg.id === assistantMessageId) as any
       const responseData = {
         content: finalMainContent || (hasThinking ? '' : finalResponse),
         thinking: hasThinking ? (finalThinking || undefined) : undefined,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        pdfCitations: (chatResponse as any)?.pdfCitations || existingAssistantMessage?.pdfCitations || [],
+        usedBrowserSearch: chatResponse.usedBrowserSearch,
+        browserSearchSources: chatResponse.browserSearchSources
       }
 
       setMessageResponses((prev) => {
@@ -2607,8 +2611,9 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
                 // Instead, use empty string or a placeholder
                 content: responseData.content,
                 thinking: responseData.thinking,
-                usedBrowserSearch: chatResponse.usedBrowserSearch,
-                browserSearchSources: chatResponse.browserSearchSources
+                usedBrowserSearch: responseData.usedBrowserSearch,
+                browserSearchSources: responseData.browserSearchSources,
+                pdfCitations: responseData.pdfCitations
               }
               : msg
           )
@@ -2622,8 +2627,9 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
                 ...msg, 
                 content: responseData.content, 
                 thinking: undefined,
-                usedBrowserSearch: chatResponse.usedBrowserSearch,
-                browserSearchSources: chatResponse.browserSearchSources
+                usedBrowserSearch: responseData.usedBrowserSearch,
+                browserSearchSources: responseData.browserSearchSources,
+                pdfCitations: responseData.pdfCitations
               }
               : msg
           )
@@ -2711,7 +2717,14 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
     setMessages((prev) =>
       prev.map((msg) =>
         msg.id === messageId
-          ? { ...msg, content: '', thinking: undefined }
+          ? {
+            ...msg,
+            content: '',
+            thinking: undefined,
+            pdfCitations: [],
+            usedBrowserSearch: undefined,
+            browserSearchSources: undefined
+          }
           : msg
       )
     )
@@ -2983,10 +2996,14 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
       }
 
       // Store this response in messageResponses
+      const existingMessage = messages.find((msg) => msg.id === messageId) as any
       const responseData = {
         content: finalMainContent || (hasThinking ? '' : finalResponse),
         thinking: hasThinking ? (finalThinking || undefined) : undefined,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        pdfCitations: (chatResponse as any)?.pdfCitations || existingMessage?.pdfCitations || [],
+        usedBrowserSearch: chatResponse.usedBrowserSearch,
+        browserSearchSources: chatResponse.browserSearchSources
       }
 
       // Update both states together to ensure consistency
@@ -3013,8 +3030,9 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
                 ...msg,
                 content: responseData.content,
                 thinking: responseData.thinking,
-                usedBrowserSearch: chatResponse.usedBrowserSearch,
-                browserSearchSources: chatResponse.browserSearchSources
+                usedBrowserSearch: responseData.usedBrowserSearch,
+                browserSearchSources: responseData.browserSearchSources,
+                pdfCitations: responseData.pdfCitations
               }
               : msg
           )
@@ -3027,8 +3045,9 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
                 ...msg, 
                 content: responseData.content, 
                 thinking: undefined,
-                usedBrowserSearch: chatResponse.usedBrowserSearch,
-                browserSearchSources: chatResponse.browserSearchSources
+                usedBrowserSearch: responseData.usedBrowserSearch,
+                browserSearchSources: responseData.browserSearchSources,
+                pdfCitations: responseData.pdfCitations
               }
               : msg
           )
@@ -3047,7 +3066,14 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === messageId
-                ? { ...msg, content: lastResponse.content, thinking: lastResponse.thinking }
+                ? {
+                  ...msg,
+                  content: lastResponse.content,
+                  thinking: lastResponse.thinking,
+                  usedBrowserSearch: lastResponse.usedBrowserSearch,
+                  browserSearchSources: lastResponse.browserSearchSources,
+                  pdfCitations: lastResponse.pdfCitations
+                }
                 : msg
             )
           )
@@ -3090,7 +3116,14 @@ function ChatGPTEmbedded({ selectedText, pdfText, pdfDocument, layout, currentPa
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === messageId
-            ? { ...msg, content: selectedResponse.content, thinking: selectedResponse.thinking }
+            ? {
+              ...msg,
+              content: selectedResponse.content,
+              thinking: selectedResponse.thinking,
+              usedBrowserSearch: selectedResponse.usedBrowserSearch,
+              browserSearchSources: selectedResponse.browserSearchSources,
+              pdfCitations: selectedResponse.pdfCitations
+            }
             : msg
         )
       )
