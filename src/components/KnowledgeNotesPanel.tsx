@@ -469,7 +469,7 @@ const KnowledgeNotesPanel: React.FC<KnowledgeNotesPanelProps> = ({
             onClick={async (e) => {
               e.stopPropagation()
               // End tracking before closing panel (before component unmounts)
-              await analytics.endNoteModeTracking()
+              analytics.endNoteModeTracking()
               onClose?.()
             }}
             aria-label="Close knowledge notes"

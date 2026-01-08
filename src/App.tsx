@@ -162,6 +162,13 @@ function AppContent() {
     return () => window.removeEventListener('resize', updateChatWidthLimits)
   }, [])
 
+  // Force split layout when mode selector is showing (no mode selected)
+  useEffect(() => {
+    if (currentInteractionMode === null && pdfFile) {
+      setChatLayout('split')
+    }
+  }, [currentInteractionMode, pdfFile])
+
   // Auto-authorize Drive when user logs in
   useEffect(() => {
     if (isAuthenticated && user && !hasMarkedInitialHistoryRef.current) {
@@ -1026,7 +1033,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
               onFileUpload={handlePdfUpload}
               onTextSelection={handleTextSelection}
               layout={chatLayout}
-              showLayoutToggle={currentInteractionMode === 'guide-me-learn'}
+              showLayoutToggle={currentInteractionMode === 'guide-me-learn' && isChatVisible}
               onPageChange={setCurrentPageNumber}
               onTotalPagesChange={(total) => {
                 if ((window as any).__pdfTotalPages !== total) {
@@ -1104,7 +1111,7 @@ Output a concise (<=5 words) human-friendly title without quotes. Do not include
               onToggleLayout={toggleChatLayout}
               onToggleKnowledgeNotes={async () => {
                 if (showKnowledgeNotes) {
-                  await analytics.endNoteModeTracking()
+                  analytics.endNoteModeTracking()
                 }
                 setShowKnowledgeNotes(prev => !prev)
               }}

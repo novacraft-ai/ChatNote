@@ -77,7 +77,7 @@ function PDFViewer({
   isDriveAuthorized,
   onSelectRecentPdf,
 }: PDFViewerProps) {
-  const { isChatVisible } = useChatVisibility()
+  const { isChatVisible, setChatVisible } = useChatVisibility()
   const [numPages, setNumPages] = useState<number>(0)
   const [pageNumber, setPageNumber] = useState<number>(1)
   const [scale, setScale] = useState<number>(1.0)
@@ -1497,6 +1497,7 @@ function PDFViewer({
             onToggleLayout={onToggleLayout}
             showLayoutToggle={showLayoutToggle}
             isChatVisible={isChatVisible}
+            onToggleChatVisibility={() => setChatVisible(!isChatVisible)}
             onClearAll={() => {
               setAnnotations([])
               setSelectedAnnotationId(null)

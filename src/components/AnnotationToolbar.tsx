@@ -15,6 +15,7 @@ interface AnnotationToolbarProps {
   onToggleLayout?: () => void
   showLayoutToggle?: boolean
   isChatVisible?: boolean
+  onToggleChatVisibility?: () => void
   onClearAll?: () => void
   // PDF controls
   pageNumber?: number
@@ -51,6 +52,7 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   onToggleLayout,
   showLayoutToggle = true,
   isChatVisible = true,
+  onToggleChatVisibility,
   
   onClearAll,
   // PDF controls
@@ -361,12 +363,13 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
 
       <div className="toolbar-right">
         {/* Actions */}
-        {showLayoutToggle && onToggleLayout && (
-          <div className="toolbar-section toolbar-actions">
+        <div className="toolbar-section toolbar-actions">
+          {/* Layout toggle button - only shown when explicitly enabled */}
+          {showLayoutToggle && onToggleLayout && (
             <button
               className="toolbar-button layout-toggle-button"
               onClick={onToggleLayout}
-              title={layout === 'floating' ? 'Switch to split layout' : (isChatVisible ? 'Switch to floating layout' : 'Show chat panel')}
+              title={layout === 'floating' ? 'Switch to split layout' : 'Switch to floating layout'}
             >
               {layout === 'floating' ? (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -375,7 +378,7 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
                   <rect x="14" y="14" width="7" height="7" />
                   <rect x="3" y="14" width="7" height="7" />
                 </svg>
-              ) : isChatVisible ? (
+              ) : (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="3" y="3" width="7" height="7" />
                   <rect x="14" y="3" width="7" height="7" />
@@ -383,14 +386,29 @@ const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
                   <rect x="3" y="14" width="7" height="7" />
                   <line x1="12" y1="3" x2="12" y2="21" />
                 </svg>
+              )}
+            </button>
+          )}
+          
+          {/* Chat visibility toggle button - always shown when not in layout toggle mode, or shown separately if chat is hidden */}
+          {(!showLayoutToggle || !isChatVisible) && (onToggleChatVisibility || onToggleLayout) && (
+            <button
+              className="toolbar-button chat-toggle-button"
+              onClick={onToggleChatVisibility || onToggleLayout}
+              title={isChatVisible ? 'Hide chat panel' : 'Show chat panel'}
+            >
+              {isChatVisible ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
               ) : (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                 </svg>
               )}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )

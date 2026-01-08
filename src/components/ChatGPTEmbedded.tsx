@@ -3485,8 +3485,8 @@ ${question.question}
         </>
       )}
 
-      {/* Chat Interface - Show for guide-me-learn or when no mode selected */}
-      {(!interactionMode || interactionMode === 'guide-me-learn') && (
+      {/* Chat Interface - Show only for guide-me-learn mode */}
+      {interactionMode === 'guide-me-learn' && (
         <>
       {!authLoading && !isAuthenticated && layout === 'floating' && (
         <div className="api-key-warning-outer">
